@@ -14,6 +14,11 @@ import {
     resolveMatchMvpPlayerId,
     resolveMvpVotingAccess,
 } from './mvp-voting';
+import {
+    canStartPullRefresh,
+    PULL_REFRESH_THRESHOLD,
+    resolvePullGesture,
+} from './pull-to-refresh';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
 import {
     captureStatCardPointer,
@@ -22,6 +27,8 @@ import {
 } from './stat-card-gesture';
 
 const root = document.querySelector('#app');
+let pullRefreshBusy = false;
+let pullRefreshGesture = null;
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const AUTH_BOOT_TIMEOUT_MS = 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
@@ -620,7 +627,13 @@ function shell(content, options = {}) {
         </header>
         <div class="shell-body">
             <nav class="nav-rail" aria-label="Navegación principal">${navigation}</nav>
-            <main id="main-content" class="main-scroll" tabindex="-1">${content}</main>
+            <main id="main-content" class="main-scroll" tabindex="-1">
+                <div class="pull-refresh-indicator" role="status" aria-live="polite">
+                    <span class="pull-refresh-indicator__icon" aria-hidden="true">${icon('refresh')}</span>
+                    <span class="pull-refresh-indicator__label">Desliza para actualizar</span>
+                </div>
+                <div class="pull-refresh-content">${content}</div>
+            </main>
         </div>
         <nav class="bottom-nav" aria-label="Navegación principal">${primary.map(([path, tab, label, iconName]) => navLink(path, tab, label, iconName)).join('')}</nav>
         ${state.snackbar ? `<div class="snackbar${state.snackbar.error ? ' snackbar--error' : ''}" role="status">${esc(state.snackbar.message)}</div>` : ''}
@@ -1245,12 +1258,26 @@ function renderAdmin() {
             ['/mister/equipos', 'shuffle', 'Generador de equipos', 'Sortea equipos y controla el cardio.'],
         ]],
     ];
-    return `<section class="page admin-page">
+    return `<section class="page admin-page manager-page">
         ${pageHeader('Zona míster', 'Gestiona partidos y jugadores desde un espacio privado.')}
-        <p class="admin-welcome">Tu cuenta tiene permisos de míster. Elige qué quieres gestionar.</p>
-        <div class="admin-grid">${sections.map(([title, copy, tools]) => `<section class="card admin-section">
-            <h2>${esc(title)}</h2><p>${esc(copy)}</p>
-            ${tools.map(([route, , label], index) => `<a class="btn ${index ? 'btn--outline' : ''} btn--wide" href="${route}">${esc(label)}</a>`).join('')}
+        <section class="manager-overview">
+            <span class="manager-overview__symbol" aria-hidden="true">${icon('manager')}</span>
+            <div>
+                <strong>Centro de operaciones</strong>
+                <p>Prepara la jornada, mantén la plantilla y corrige cualquier dato desde aquí.</p>
+            </div>
+            <span class="manager-overview__status"><i></i> Acceso de míster</span>
+        </section>
+        <div class="admin-grid">${sections.map(([title, copy, tools], sectionIndex) => `<section class="card admin-section admin-section--${sectionIndex + 1}">
+            <header class="admin-section__header">
+                <span class="admin-section__number">0${sectionIndex + 1}</span>
+                <div><h2>${esc(title)}</h2><p>${esc(copy)}</p></div>
+            </header>
+            <div class="admin-tools">${tools.map(([route, iconName, label, description]) => `<a class="admin-tool" href="${route}">
+                <span class="admin-tool__icon" aria-hidden="true">${icon(iconName)}</span>
+                <span class="admin-tool__copy"><strong>${esc(label)}</strong><small>${esc(description)}</small></span>
+                <span class="admin-tool__arrow" aria-hidden="true">›</span>
+            </a>`).join('')}</div>
         </section>`).join('')}</div>
         <p class="admin-version">Versión Laravel ${esc(document.documentElement.dataset.appVersion || '13')}</p>
     </section>`;
@@ -1473,9 +1500,9 @@ function renderManagePlayers() {
         .filter((player) => player.name.toLowerCase().includes(filter.search.toLowerCase()))
         .filter((player) => filter.status === 'active' ? player.is_active : filter.status === 'inactive' ? !player.is_active : filter.status === 'cardio' ? player.has_cardio : true)
         .sort((a, b) => (filter.order === 'za' ? -1 : 1) * a.name.localeCompare(b.name, 'es'));
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--listing">
         ${pageHeader('Gestionar jugadores', 'Busca, activa, desactiva o edita jugadores; el borrado queda reservado a perfiles sin historial.', `<a class="btn btn--compact" href="/mister/jugadores/nuevo">${icon('plus')} Añadir jugador</a>`)}
-        <form id="manage-players-filter" class="card card__body form-grid">
+        <form id="manage-players-filter" class="card card__body form-grid manager-filter">
             <label class="field"><span>Buscar jugador</span><input class="input" name="search" value="${esc(filter.search)}" placeholder="Nombre del jugador"></label>
             <label class="field"><span>Estado</span><select class="select" name="status">
                 <option value="all" ${filter.status === 'all' ? 'selected' : ''}>Todos</option><option value="active" ${filter.status === 'active' ? 'selected' : ''}>Activos</option><option value="inactive" ${filter.status === 'inactive' ? 'selected' : ''}>Inactivos</option><option value="cardio" ${filter.status === 'cardio' ? 'selected' : ''}>Con cardio</option>
@@ -1483,14 +1510,14 @@ function renderManagePlayers() {
             <label class="field"><span>Orden</span><select class="select" name="order"><option value="az" ${filter.order === 'az' ? 'selected' : ''}>Orden A–Z</option><option value="za" ${filter.order === 'za' ? 'selected' : ''}>Orden Z–A</option></select></label>
             <button class="btn btn--outline" type="submit">Filtrar</button>
         </form>
-        <p class="eyebrow">${players.length} DE ${allPlayers.length} JUGADORES</p>
-        ${players.length ? `<div class="data-table-wrap"><table class="data-table">
+        <p class="eyebrow manager-results-count"><strong>${players.length}</strong> de ${allPlayers.length} jugadores</p>
+        ${players.length ? `<div class="data-table-wrap manager-table manager-player-table"><table class="data-table">
             <thead><tr><th>Jugador</th><th>Estado</th><th class="optional">Cardio</th><th><span class="visually-hidden">Acciones</span></th></tr></thead>
             <tbody>${players.map((player) => `<tr>
-                <td><div class="inline">${avatar({ id: player.id, name: player.name })}<strong>${esc(player.name)}</strong></div></td>
-                <td><span class="status-badge ${player.is_active ? 'status-badge--success' : ''}">${player.is_active ? 'Activo' : 'Inactivo'}</span></td>
-                <td class="optional">${player.has_cardio ? 'Sí' : 'No'}</td>
-                <td><div class="table-actions">
+                <td data-label="Jugador"><div class="inline">${avatar({ id: player.id, name: player.name })}<strong>${esc(player.name)}</strong></div></td>
+                <td data-label="Estado"><span class="status-badge ${player.is_active ? 'status-badge--success' : ''}">${player.is_active ? 'Activo' : 'Inactivo'}</span></td>
+                <td class="optional" data-label="Cardio">${player.has_cardio ? 'Sí' : 'No'}</td>
+                <td data-label="Acciones"><div class="table-actions">
                     <a class="icon-btn" href="/mister/jugadores/${toHex(player.id)}" aria-label="Editar ${esc(player.name)}">${icon('edit')}</a>
                     <button class="btn btn--outline btn--compact" type="button" data-action="toggle-player-active" data-id="${esc(player.id)}" data-active="${player.is_active}">${player.is_active ? 'Desactivar jugador' : 'Activar jugador'}</button>
                     <button class="icon-btn" type="button" data-action="delete-player" data-id="${esc(player.id)}" data-name="${esc(player.name)}" aria-label="Borrar ${esc(player.name)}">${icon('trash')}</button>
@@ -1511,15 +1538,19 @@ function renderPlayerForm(id = '') {
         return `<section class="page">${pageHeader('Editar jugador')}<div class="card">${stateView('error', 'Jugador no encontrado', 'No se ha podido abrir este jugador.', '<button class="btn" data-action="back">Volver</button>')}</div></section>`;
     }
     const editing = Boolean(player);
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--form">
         ${pageHeader(editing ? 'Editar jugador' : 'Añadir jugador', editing ? 'Actualiza el nombre del jugador.' : 'Da de alta un jugador para la liga.')}
-        <form id="player-form" class="card card__body--large form-card stack" data-id="${esc(id)}">
-            <label class="field"><span>Nombre</span><input class="input" name="name" maxlength="80" value="${esc(player?.name || '')}" required></label>
-            <div class="switch-row">
+        <form id="player-form" class="card card__body--large form-card stack manager-form manager-form--compact" data-id="${esc(id)}">
+            <header class="manager-form__header">
+                <span class="manager-form__icon" aria-hidden="true">${icon('profile')}</span>
+                <div><span>Ficha de plantilla</span><h2>${editing ? 'Datos del jugador' : 'Nuevo jugador'}</h2></div>
+            </header>
+            <label class="field manager-field"><span>Nombre del jugador</span><input class="input" name="name" maxlength="80" value="${esc(player?.name || '')}" placeholder="Nombre y apellidos" required></label>
+            <div class="switch-row manager-switch-row">
                 <div><strong>Está en buena forma física</strong><div class="muted">Ayuda a equilibrar los equipos en el generador.</div></div>
                 <label class="switch"><input name="has_cardio" type="checkbox" ${player?.has_cardio ? 'checked' : ''}><span class="switch__track"></span></label>
             </div>
-            <div class="inline inline--end"><button class="btn btn--text" type="button" data-action="back">Cancelar</button><button class="btn" type="submit">Guardar jugador</button></div>
+            <footer class="manager-form__actions"><button class="btn btn--text" type="button" data-action="back">Cancelar</button><button class="btn" type="submit">Guardar jugador</button></footer>
         </form>
     </section>`;
 }
@@ -1548,21 +1579,21 @@ function renderManageMatches() {
                 ? match.team_a_penalty_score != null
                 : true)
         .sort((a, b) => (filter.order === 'oldest' ? 1 : -1) * a.played_on.localeCompare(b.played_on));
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--listing">
         ${pageHeader('Gestionar partidos', 'Encuentra, edita o borra actas y sus datos asociados.', `<a class="btn btn--compact" href="/mister/partidos/nuevo">${icon('plus')} Nuevo partido</a>`)}
-        <form id="manage-matches-filter" class="card card__body form-grid">
+        <form id="manage-matches-filter" class="card card__body form-grid manager-filter">
             <label class="field"><span>Buscar por fecha o resultado</span><input class="input" name="search" value="${esc(filter.search)}" placeholder="Fecha o resultado"></label>
             <label class="field"><span>Tipo de partido</span><select class="select" name="type"><option value="all" ${filter.type === 'all' ? 'selected' : ''}>Todos</option><option value="draws" ${filter.type === 'draws' ? 'selected' : ''}>Empates</option><option value="penalties" ${filter.type === 'penalties' ? 'selected' : ''}>Con penaltis</option></select></label>
             <label class="field"><span>Orden</span><select class="select" name="order"><option value="newest" ${filter.order === 'newest' ? 'selected' : ''}>Orden: recientes</option><option value="oldest" ${filter.order === 'oldest' ? 'selected' : ''}>Orden: antiguos</option></select></label>
             <button class="btn btn--outline" type="submit">Filtrar</button>
         </form>
-        <p class="eyebrow">${matches.length} DE ${allMatches.length} PARTIDOS</p>
-        ${matches.length ? `<div class="data-table-wrap"><table class="data-table">
+        <p class="eyebrow manager-results-count"><strong>${matches.length}</strong> de ${allMatches.length} partidos</p>
+        ${matches.length ? `<div class="data-table-wrap manager-table manager-match-table"><table class="data-table">
             <thead><tr><th>Fecha</th><th>Resultado</th><th class="optional">Penaltis</th><th><span class="visually-hidden">Acciones</span></th></tr></thead>
             <tbody>${matches.map((match) => `<tr>
-                <td>${esc(formatDate(match.played_on))}</td><td><strong class="gold">${match.team_a_score} - ${match.team_b_score}</strong></td>
-                <td class="optional">${match.team_a_penalty_score == null ? '—' : `${match.team_a_penalty_score} - ${match.team_b_penalty_score}`}</td>
-                <td><div class="table-actions"><a class="icon-btn" href="/mister/partidos/${toHex(match.id)}" aria-label="Editar partido">${icon('edit')}</a>
+                <td data-label="Fecha">${esc(formatDate(match.played_on))}</td><td data-label="Resultado"><strong class="gold">${match.team_a_score} - ${match.team_b_score}</strong></td>
+                <td class="optional" data-label="Penaltis">${match.team_a_penalty_score == null ? '—' : `${match.team_a_penalty_score} - ${match.team_b_penalty_score}`}</td>
+                <td data-label="Acciones"><div class="table-actions"><a class="icon-btn" href="/mister/partidos/${toHex(match.id)}" aria-label="Editar partido">${icon('edit')}</a>
                     <button class="icon-btn" type="button" data-action="delete-match" data-id="${esc(match.id)}" data-date="${esc(formatDate(match.played_on))}" aria-label="Borrar partido">${icon('trash')}</button></div></td>
             </tr>`).join('')}</tbody>
         </table></div>` : `<div class="card">${stateView('empty', allMatches.length ? 'No hay partidos que coincidan con los filtros.' : 'No hay partidos para gestionar.', allMatches.length ? 'Prueba otra búsqueda o cambia el tipo de partido.' : 'Crea la primera acta de la liga.', allMatches.length ? '' : '<a class="btn" href="/mister/partidos/nuevo">Nuevo partido</a>')}</div>`}
@@ -1662,7 +1693,7 @@ function renderMatchForm(id = '') {
         hasValidMatchBasics(draft) && hasValidMatchTeams(draft),
         hasValidMatchBasics(draft) && hasValidMatchTeams(draft) && hasValidMatchGoals(draft),
     ];
-    return `<section class="page stack stack--wide match-editor-page">
+    return `<section class="page stack stack--wide match-editor-page manager-page manager-page--editor">
         ${pageHeader(id ? 'Editar acta' : 'Nueva acta', id ? 'Revisa el partido paso a paso y guarda los cambios.' : 'Completa partido, equipos y goles en tres pasos.')}
         <nav class="stepper" aria-label="Pasos del acta">
             ${[['Partido', 1], ['Equipos', 2], ['Goles', 3]].map(([label, number]) => {
@@ -1883,20 +1914,45 @@ function renderInvitation() {
     if (state.invitablePlayers === 'loading') return pageLoading('Invitar a la liga');
     if (state.invitablePlayers.error) return `<section class="page">${pageHeader('Invitar a la liga')}<div class="card">${stateView('error', 'No se ha podido preparar la invitación', state.invitablePlayers.error, '<button class="btn" data-action="reload-invitable">Reintentar</button>')}</div></section>`;
     if (state.invitationSuccess) {
-        return `<section class="page stack stack--wide">${pageHeader('Invitación enviada', 'El acceso a la liga está en camino.')}
-            <div class="card card--highlight card__body--large empty-state"><div><div class="state-icon">${icon('mail')}</div><h2 class="state-title">Invitación enviada</h2>
+        return `<section class="page stack stack--wide manager-page manager-page--form">${pageHeader('Invitación enviada', 'El acceso a la liga está en camino.')}
+            <div class="card card--highlight card__body--large empty-state manager-success"><div><div class="state-icon">${icon('mail')}</div><h2 class="state-title">Invitación enviada</h2>
             <p class="state-copy">${esc(state.invitationSuccess.playerName)} recibirá el acceso en ${esc(state.invitationSuccess.email)}.</p>
             <p class="muted">El jugador ya no aparece entre las personas disponibles para evitar duplicados.</p>
             <div class="inline"><button class="btn btn--outline" data-action="invite-another">Invitar a otra persona</button><a class="btn" href="/mister">Volver a Zona míster</a></div></div></div>
         </section>`;
     }
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--form">
         ${pageHeader('Invitar y vincular', 'Da acceso a un jugador existente sin perder ni duplicar su historial.')}
-        <form id="invitation-form" class="card card__body--large form-card stack">
-            <label class="field"><span>1 · Elige al jugador</span><select class="select" name="player_id" required><option value="">Selecciona un jugador</option>${state.invitablePlayers.map((player) => `<option value="${esc(player.id)}">${esc(player.name)}</option>`).join('')}</select><small class="muted">Sólo aparecen jugadores activos sin una cuenta ni una invitación pendiente.</small></label>
-            <label class="field"><span>2 · Correo electrónico</span><input class="input" name="email" type="email" inputmode="email" autocomplete="email" placeholder="jugador@ejemplo.com" required></label>
-            <div class="card card__body"><div class="inline">${icon('info')}<p class="muted">El jugador recibirá un enlace seguro para elegir su contraseña. Su historial previo permanecerá vinculado.</p></div></div>
-            <div class="inline inline--end"><button class="btn btn--text" type="button" data-action="back">Cancelar</button><button class="btn" type="submit">${icon('mail')} Enviar acceso a la liga</button></div>
+        <form id="invitation-form" class="card form-card manager-form manager-form--invitation">
+            <div class="manager-form__main">
+                <header class="manager-form__header">
+                    <span class="manager-form__icon" aria-hidden="true">${icon('mail')}</span>
+                    <div><span>Alta de acceso</span><h2>Vincula jugador y cuenta</h2></div>
+                </header>
+                <label class="field manager-field">
+                    <span><b>01</b> Elige al jugador</span>
+                    <select class="select" name="player_id" required><option value="">Selecciona un jugador</option>${state.invitablePlayers.map((player) => `<option value="${esc(player.id)}">${esc(player.name)}</option>`).join('')}</select>
+                    <small class="muted">Solo aparecen jugadores activos sin cuenta ni invitación pendiente.</small>
+                </label>
+                <label class="field manager-field">
+                    <span><b>02</b> Correo electrónico</span>
+                    <input class="input" name="email" type="email" inputmode="email" autocomplete="email" placeholder="jugador@ejemplo.com" required>
+                </label>
+            </div>
+            <aside class="manager-form__aside">
+                <span class="manager-form__aside-icon" aria-hidden="true">${icon('info')}</span>
+                <strong>Qué ocurrirá después</strong>
+                <p>El jugador recibirá un enlace seguro para elegir su contraseña.</p>
+                <ul>
+                    <li>Conservará todo su historial.</li>
+                    <li>No se duplicará su ficha.</li>
+                    <li>El enlace será personal.</li>
+                </ul>
+            </aside>
+            <footer class="manager-form__actions">
+                <button class="btn btn--text" type="button" data-action="back">Cancelar</button>
+                <button class="btn" type="submit">${icon('mail')} Enviar acceso</button>
+            </footer>
         </form>
     </section>`;
 }
@@ -1916,6 +1972,33 @@ async function prepareRandomizer() {
     render();
 }
 
+async function refreshRandomizerPlayers() {
+    const previousPlayers = state.randomizer?.players || [];
+    const previousPlayerIds = new Set(previousPlayers.map((player) => player.id));
+    const previousSelectedIds = state.randomizer?.selected || new Set();
+    const players = await rpc('get_active_players');
+    const nextPlayers = players || [];
+
+    state.randomizer = {
+        ...(state.randomizer || {
+            loading: false,
+            error: '',
+            teams: 2,
+            balanceStats: false,
+        }),
+        players: nextPlayers,
+        selected: new Set(nextPlayers
+            .filter((player) => !previousPlayerIds.has(player.id) || previousSelectedIds.has(player.id))
+            .map((player) => player.id)),
+        loading: false,
+        error: '',
+    };
+    state.randomizer.teams = Math.min(
+        state.randomizer.teams,
+        Math.max(2, state.randomizer.selected.size),
+    );
+}
+
 function renderRandomizer() {
     if (!isAdmin()) return restrictedPage();
     if (!state.randomizer) {
@@ -1927,11 +2010,14 @@ function renderRandomizer() {
     if (randomizer.error) return `<section class="page">${pageHeader('Generador de equipos')}<div class="card">${stateView('error', 'No se ha podido cargar la plantilla', randomizer.error, '<button class="btn" data-action="retry-randomizer">Volver a intentar</button>')}</div></section>`;
     const selected = randomizer.selected.size;
     const perTeam = Math.floor(selected / randomizer.teams);
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--tools">
         ${pageHeader('Generador de equipos', 'Selecciona quién juega hoy y prepara un reparto equilibrado.')}
-        <section class="card card__body--large stack stack--wide">
-            <div class="inline"><div><h2 class="section-heading">Convocatoria</h2><p class="muted">Solo jugadores activos de la plantilla</p></div><span class="status-badge">${selected} seleccionados</span><span style="flex:1"></span>
-                <button class="btn btn--text btn--compact" data-action="randomizer-select-all">Todos</button><button class="btn btn--text btn--compact" data-action="randomizer-select-none">Ninguno</button></div>
+        <section class="card card__body--large stack stack--wide manager-tool-panel">
+            <header class="manager-section-heading">
+                <div><span>Lista de hoy</span><h2 class="section-heading">Convocatoria</h2><p class="muted">Solo jugadores activos de la plantilla</p></div>
+                <div class="manager-section-heading__actions"><span class="status-badge">${selected} seleccionados</span>
+                    <button class="btn btn--text btn--compact" data-action="randomizer-select-all">Todos</button><button class="btn btn--text btn--compact" data-action="randomizer-select-none">Ninguno</button></div>
+            </header>
             <div class="selection-grid">${randomizer.players.map((player) => `<label class="select-player"><input type="checkbox" data-randomizer-player="${esc(player.id)}" ${randomizer.selected.has(player.id) ? 'checked' : ''}><span class="ranking-name">${esc(player.name)}</span>${player.has_cardio ? '<span title="Buen cardio">⚡</span>' : ''}</label>`).join('')}</div>
             <hr class="divider">
             <div class="form-grid">
@@ -1965,12 +2051,12 @@ function renderRandomizerResult() {
     if (!state.randomizerResult) return `<section class="page">${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}<div class="card">${stateView('empty', 'No hay un sorteo activo', 'Vuelve al generador para elegir la convocatoria.', '<a class="btn" href="/mister/equipos">Volver al generador</a>')}</div></section>`;
     const teams = state.randomizerResult;
     const names = ['A', 'B', 'C', 'D', 'E', 'F'];
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide manager-page manager-page--tools">
         ${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}
         <div class="randomizer-summary"><div class="summary-chip"><strong>${teams.length}</strong>equipos</div><div class="summary-chip"><strong>${teams.flat().length}</strong>jugadores</div><div class="summary-chip"><strong>${Math.floor(teams.flat().length / teams.length)}–${Math.ceil(teams.flat().length / teams.length)}</strong>por equipo</div></div>
         <div class="team-grid">${teams.map((team, index) => `<section class="card generated-team"><h2 class="generated-team__title">Equipo ${names[index]} ${state.randomizer?.balanceStats ? `<span class="status-badge">${formatSignedDecimal(team.reduce((sum, player) => sum + (player.statsScore || 0), 0))} puntos</span>` : ''}</h2>${team.map((player) => `<div class="player-line">${avatar({ id: player.id, name: player.name })}<span class="player-line__name">${esc(player.name)}</span>${player.has_cardio ? '⚡' : ''}</div>`).join('')}</section>`).join('')}</div>
-        <div class="card card__body"><h2 class="section-heading">¿Te encaja el reparto?</h2><p class="muted">${teams.length === 2 ? 'Puedes repetir el sorteo o guardar los equipos A y B.' : 'Puedes repetir el sorteo. Para crear un acta necesitas exactamente 2 equipos.'}</p></div>
-        <div class="inline inline--end"><button class="btn btn--outline" data-action="randomizer-redraw">${icon('shuffle')} Volver a sortear</button>${teams.length === 2 ? `<button class="btn btn--outline" data-action="randomizer-save">Guardar para el próximo partido</button><button class="btn" data-action="randomizer-create-record">${icon('plus')} Crear acta con estos equipos</button>` : ''}</div>
+        <div class="card card__body manager-result-note"><span class="manager-form__icon" aria-hidden="true">${icon('info')}</span><div><h2 class="section-heading">¿Te encaja el reparto?</h2><p class="muted">${teams.length === 2 ? 'Puedes repetir el sorteo o guardar los equipos A y B.' : 'Puedes repetir el sorteo. Para crear un acta necesitas exactamente 2 equipos.'}</p></div></div>
+        <div class="inline inline--end manager-result-actions"><button class="btn btn--outline" data-action="randomizer-redraw">${icon('shuffle')} Volver a sortear</button>${teams.length === 2 ? `<button class="btn btn--outline" data-action="randomizer-save">Guardar para el próximo partido</button><button class="btn" data-action="randomizer-create-record">${icon('plus')} Crear acta con estos equipos</button>` : ''}</div>
     </section>`;
 }
 
@@ -2085,6 +2171,7 @@ root.addEventListener('submit', async (event) => {
             const playerNameValue = state.invitablePlayers.find((player) => player.id === playerId)?.name || 'El jugador';
             state.invitablePlayers = state.invitablePlayers.filter((player) => player.id !== playerId);
             state.invitationSuccess = { email, playerName: playerNameValue };
+            state.unsaved = false;
             showSnackbar(`Invitación enviada a ${email}`);
         } catch (error) {
             showSnackbar(errorMessage(error, 'No se ha podido enviar la invitación.'), true);
@@ -2269,6 +2356,7 @@ root.addEventListener('click', async (event) => {
         await loadInvitablePlayers();
     } else if (action === 'invite-another') {
         state.invitationSuccess = null;
+        state.unsaved = false;
         render();
     } else if (action === 'toggle-player-active') {
         if (target.dataset.active === 'true') {
@@ -2453,12 +2541,15 @@ root.addEventListener('change', async (event) => {
     } else if (target.closest('#match-form')) {
         collectMatchBasics(target.form);
         if (target.name === 'penalties') render();
-    } else if (target.closest('#player-form')) {
+    } else if (target.closest('#player-form, #invitation-form')) {
         state.unsaved = true;
     }
 });
 
 root.addEventListener('input', (event) => {
+    if (event.target.closest('#player-form, #invitation-form')) {
+        state.unsaved = true;
+    }
     const form = event.target.closest('#auth-form[data-mode="login"], #auth-form[data-mode="forgot"]');
     if (!form) return;
     const email = form.querySelector('[name="email"]')?.value.trim() || '';
@@ -2466,6 +2557,156 @@ root.addEventListener('input', (event) => {
     const submit = form.querySelector('[type="submit"]');
     if (submit) submit.disabled = form.dataset.mode === 'forgot' ? !email : !email || !password;
 });
+
+function pullRefreshElements(scroll = pullRefreshGesture?.scroll) {
+    return {
+        scroll,
+        indicator: scroll?.querySelector('.pull-refresh-indicator'),
+        label: scroll?.querySelector('.pull-refresh-indicator__label'),
+    };
+}
+
+function resetPullRefreshVisual(scroll, immediate = false) {
+    if (!scroll) return;
+    scroll.classList.toggle('main-scroll--pull-reset-immediate', immediate);
+    scroll.classList.remove('main-scroll--pulling', 'main-scroll--pull-ready', 'main-scroll--refreshing');
+    scroll.style.setProperty('--pull-distance', '0px');
+    scroll.style.setProperty('--pull-progress', '0');
+    const label = scroll.querySelector('.pull-refresh-indicator__label');
+    if (label) label.textContent = 'Desliza para actualizar';
+    if (immediate) {
+        requestAnimationFrame(() => scroll.classList.remove('main-scroll--pull-reset-immediate'));
+    }
+}
+
+function updatePullRefreshVisual(gesture) {
+    const { scroll, label } = pullRefreshElements(gesture.scroll);
+    if (!scroll) return;
+    scroll.classList.add('main-scroll--pulling');
+    scroll.classList.toggle('main-scroll--pull-ready', gesture.ready);
+    scroll.style.setProperty('--pull-distance', `${gesture.distance}px`);
+    scroll.style.setProperty('--pull-progress', String(gesture.progress));
+    if (label) label.textContent = gesture.ready ? 'Suelta para actualizar' : 'Desliza para actualizar';
+}
+
+async function refreshCurrentScreen() {
+    const route = currentRoute();
+
+    if (route === '/mister/partidos') {
+        state.adminMatches = await rpc('get_admin_friendly_matches');
+        render();
+        return;
+    }
+    if (route === '/mister/jugadores') {
+        state.adminPlayers = await rpc('get_admin_players');
+        render();
+        return;
+    }
+    if (route === '/mister/invitacion') {
+        state.invitablePlayers = await rpc('get_invitable_players');
+        render();
+        return;
+    }
+    if (route === '/mister/equipos') {
+        await refreshRandomizerPlayers();
+        render();
+        return;
+    }
+    if (route.startsWith('/mister/partidos/')) {
+        const matchId = route === '/mister/partidos/nuevo' ? '' : fromHex(route.split('/').pop());
+        await prepareMatchDraft(matchId);
+        return;
+    }
+    if (route.startsWith('/mister/jugadores/')) {
+        state.adminPlayers = await rpc('get_admin_players');
+        render();
+        return;
+    }
+
+    await loadApplicationData();
+}
+
+async function performPullRefresh(scroll) {
+    if (pullRefreshBusy) return;
+    pullRefreshBusy = true;
+    const { label } = pullRefreshElements(scroll);
+    scroll?.classList.remove('main-scroll--pulling', 'main-scroll--pull-ready');
+    scroll?.classList.add('main-scroll--refreshing');
+    scroll?.style.setProperty('--pull-distance', '54px');
+    if (label) label.textContent = 'Actualizando datos';
+
+    try {
+        await refreshCurrentScreen();
+        showSnackbar('Datos actualizados');
+    } catch (error) {
+        showSnackbar(errorMessage(error, 'No se ha podido actualizar la pantalla.'), true);
+    } finally {
+        pullRefreshBusy = false;
+        pullRefreshGesture = null;
+        resetPullRefreshVisual(document.querySelector('.main-scroll'));
+    }
+}
+
+root.addEventListener('touchstart', (event) => {
+    const scroll = event.target.closest('.main-scroll');
+    const touch = event.touches[0];
+    const blockedTarget = Boolean(event.target.closest(
+        'input, textarea, select, [contenteditable="true"], [data-stat-key], .dialog-backdrop',
+    ));
+
+    if (!scroll || !touch || !canStartPullRefresh({
+        scrollTop: scroll.scrollTop,
+        touchCount: event.touches.length,
+        refreshing: pullRefreshBusy,
+        unsaved: state.unsaved,
+        dialogOpen: Boolean(state.dialog),
+        blockedTarget,
+    })) {
+        pullRefreshGesture = null;
+        return;
+    }
+
+    pullRefreshGesture = {
+        scroll,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        distance: 0,
+        ready: false,
+    };
+}, { passive: true });
+
+root.addEventListener('touchmove', (event) => {
+    if (!pullRefreshGesture || state.statReorder?.active || event.touches.length !== 1) return;
+    const touch = event.touches[0];
+    const resolved = resolvePullGesture(
+        pullRefreshGesture.startX,
+        pullRefreshGesture.startY,
+        touch.clientX,
+        touch.clientY,
+        PULL_REFRESH_THRESHOLD,
+    );
+    if (!resolved.active) return;
+
+    event.preventDefault();
+    Object.assign(pullRefreshGesture, resolved);
+    updatePullRefreshVisual(pullRefreshGesture);
+}, { passive: false });
+
+root.addEventListener('touchend', () => {
+    const gesture = pullRefreshGesture;
+    if (!gesture) return;
+    pullRefreshGesture = null;
+    if (gesture.ready) {
+        void performPullRefresh(gesture.scroll);
+    } else {
+        resetPullRefreshVisual(gesture.scroll);
+    }
+}, { passive: true });
+
+root.addEventListener('touchcancel', () => {
+    resetPullRefreshVisual(pullRefreshGesture?.scroll, true);
+    pullRefreshGesture = null;
+}, { passive: true });
 
 const STAT_LONG_PRESS_DELAY = 420;
 const STAT_PRESS_MOVE_TOLERANCE = 9;
