@@ -4606,7 +4606,7 @@ body {
     box-shadow: inset 0 1px 0 rgb(248 248 242 / 3%);
 }
 
-.stat-card:nth-last-child(-n + 2) {
+.stat-card:nth-child(-n + 2) {
     grid-column: span 3;
 }
 
@@ -4952,7 +4952,7 @@ body {
     }
 
     .stat-card,
-    .stat-card:nth-last-child(-n + 2) {
+    .stat-card:nth-child(-n + 2) {
         grid-column: span 3;
     }
 
@@ -5071,7 +5071,7 @@ body {
     }
 
     .stat-card,
-    .stat-card:nth-last-child(-n + 2),
+    .stat-card:nth-child(-n + 2),
     .stat-card:first-child:nth-last-child(odd) {
         grid-column: 1 / -1;
     }
