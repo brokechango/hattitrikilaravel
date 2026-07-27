@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     captureStatCardPointer,
     movedBeyondPressTolerance,
+    restoreStatCardScroll,
     shouldBlockStatCardScroll,
 } from '../../resources/js/stat-card-gesture';
 
@@ -28,5 +29,13 @@ describe('stat card gestures', () => {
         expect(shouldBlockStatCardScroll(null)).toBe(false);
         expect(shouldBlockStatCardScroll({ active: false })).toBe(false);
         expect(shouldBlockStatCardScroll({ active: true })).toBe(true);
+    });
+
+    it('restores the previous scroll position after the home is rendered again', () => {
+        const container = { scrollTop: 0, scrollLeft: 0 };
+
+        expect(restoreStatCardScroll(container, { top: 428, left: 12 })).toBe(true);
+        expect(container).toEqual({ scrollTop: 428, scrollLeft: 12 });
+        expect(restoreStatCardScroll(null, { top: 428, left: 12 })).toBe(false);
     });
 });

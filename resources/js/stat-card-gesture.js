@@ -13,3 +13,12 @@ export function movedBeyondPressTolerance(originX, originY, clientX, clientY, to
 export function shouldBlockStatCardScroll(reorder) {
     return Boolean(reorder?.active);
 }
+
+export function restoreStatCardScroll(container, position) {
+    if (!container || !position) return false;
+
+    container.scrollTop = Number(position.top) || 0;
+    container.scrollLeft = Number(position.left) || 0;
+
+    return true;
+}

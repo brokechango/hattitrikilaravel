@@ -23,6 +23,7 @@ import { normalizeSeasons, resolveSeasonId } from './seasons';
 import {
     captureStatCardPointer,
     movedBeyondPressTolerance,
+    restoreStatCardScroll,
     shouldBlockStatCardScroll,
 } from './stat-card-gesture';
 
@@ -2792,6 +2793,10 @@ function finishStatReorder(cancelled = false) {
     const reorder = state.statReorder;
     if (!reorder) return;
     window.clearTimeout(reorder.timer);
+    const scrollPosition = {
+        top: reorder.scrollContainer?.scrollTop || 0,
+        left: reorder.scrollContainer?.scrollLeft || 0,
+    };
     clearStatReorderClasses(reorder);
     state.statReorder = null;
 
@@ -2800,7 +2805,10 @@ function finishStatReorder(cancelled = false) {
     const orderChanged = reorder.visibleOrder.some((key, index) => key !== reorder.originalVisibleOrder[index]);
     if (cancelled && orderChanged) {
         render();
-        queueMicrotask(() => announceStatReorder('Reordenación cancelada.'));
+        queueMicrotask(() => {
+            restoreStatCardScroll(document.querySelector('#main-content'), scrollPosition);
+            announceStatReorder('Reordenación cancelada.');
+        });
     } else if (orderChanged) {
         let visibleIndex = 0;
         const visibleKeys = new Set(reorder.visibleOrder);
@@ -2810,7 +2818,10 @@ function finishStatReorder(cancelled = false) {
         state.homeOrder = order;
         localStorage.setItem('hattitriki-home-order', JSON.stringify(order));
         render();
-        queueMicrotask(() => announceStatReorder('Tarjeta recolocada.'));
+        queueMicrotask(() => {
+            restoreStatCardScroll(document.querySelector('#main-content'), scrollPosition);
+            announceStatReorder('Tarjeta recolocada.');
+        });
     } else {
         announceStatReorder(cancelled ? 'Reordenación cancelada.' : 'La tarjeta mantiene su posición.');
     }
@@ -2838,6 +2849,7 @@ root.addEventListener('pointerdown', (event) => {
         active: false,
         card,
         grid,
+        scrollContainer: card.closest('.main-scroll'),
         timer: 0,
     };
     // The card is moved between grid slots while dragging. Pointer capture on
