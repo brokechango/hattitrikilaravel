@@ -224,6 +224,7 @@ jobs:
 
           check_origin() {
             local origin="$1"
+            local smoke_nonce="$2"
             local html asset_type asset_path content_type
 
             SMOKE_FAILURE=""
@@ -232,7 +233,8 @@ jobs:
               curl --fail --location --silent --show-error \
                 --connect-timeout 10 --max-time 30 \
                 --retry 2 --retry-all-errors \
-                "${origin%/}/?smoke=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+                --header 'Cache-Control: no-cache' \
+                "${origin%/}/?smoke=${smoke_nonce}"
             )"; then
               SMOKE_FAILURE="The application document is unavailable."
               return 1
@@ -264,8 +266,9 @@ jobs:
                 curl --fail --location --silent --show-error \
                   --connect-timeout 10 --max-time 30 \
                   --retry 2 --retry-all-errors \
+                  --header 'Cache-Control: no-cache' \
                   --output /dev/null --write-out '%{content_type}' \
-                  "${origin%/}${asset_path}"
+                  "${origin%/}${asset_path}?smoke=${smoke_nonce}"
               )"; then
                 SMOKE_FAILURE="The ${asset_type} asset ${asset_path} is unavailable."
                 return 1
@@ -297,7 +300,7 @@ jobs:
             do
               echo "Smoke testing ${origin} (attempt ${attempt}/12)..."
 
-              if check_origin "$origin"; then
+              if check_origin "$origin" "${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}"; then
                 smoke_passed=true
                 echo "::notice title=Smoke test passed::${origin} passed on attempt ${attempt}."
                 break
