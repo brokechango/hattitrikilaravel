@@ -796,20 +796,29 @@ function renderHistory() {
     return `<section class="page history-page">
         ${pageHeader('Resultados', `Partidos de ${selectedSeason?.name || 'la temporada actual'}.`)}
         <section class="history-sticky">
-            <label class="card history-season-filter">
-                <span><small>TEMPORADA</small><strong>${esc(selectedSeason?.name || 'Temporada actual')}</strong></span>
-                <select class="select" id="history-season-filter" ${state.seasonBusy ? 'disabled' : ''} aria-label="Filtrar partidos por temporada">
-                    ${state.seasons.map((season) => `<option value="${season.id}" ${season.id === state.selectedSeasonId ? 'selected' : ''}>${esc(season.name)}${season.isCurrent ? ' · Actual' : ''}</option>`).join('')}
-                </select>
-            </label>
-            <form id="history-filter" class="card filter-panel${hasActiveFilter ? ' card--highlight' : ''}">
+            <section class="card history-filter-shell${hasActiveFilter ? ' history-filter-shell--active' : ''}" aria-label="Filtros de resultados">
+                <label class="history-season-filter">
+                    <span class="history-filter-icon history-filter-icon--season" aria-hidden="true">${String(selectedSeason?.number || 1).padStart(2, '0')}</span>
+                    <span class="history-filter-copy">
+                        <small>TEMPORADA</small>
+                        <strong>${esc(selectedSeason?.name || 'Temporada actual')}</strong>
+                        <em>${selectedSeason?.isCurrent ? 'Competición en curso' : 'Archivo de la competición'}</em>
+                    </span>
+                    <select class="select history-season-filter__select" id="history-season-filter" ${state.seasonBusy ? 'disabled' : ''} aria-label="Filtrar partidos por temporada">
+                        ${state.seasons.length
+        ? state.seasons.map((season) => `<option value="${season.id}" ${season.id === state.selectedSeasonId ? 'selected' : ''}>${esc(season.name)}${season.isCurrent ? ' · Actual' : ''}</option>`).join('')
+        : '<option value="" selected>Temporada actual</option>'}
+                    </select>
+                </label>
+                <form id="history-filter" class="filter-panel">
                 <div class="filter-panel__header">
+                    <span class="history-filter-icon" aria-hidden="true">${icon('matches')}</span>
                     <div class="filter-panel__summary">
                         <span class="filter-panel__eyebrow">FECHA</span>
                         <strong>${esc(filterSummary)}</strong>
                         <small>${hasActiveFilter ? `${matches.length} de ${state.snapshot.matches.length} partidos` : `${state.snapshot.matches.length} partidos guardados`}</small>
                     </div>
-                    <button class="btn btn--outline filter-panel__toggle" type="button" data-action="history-toggle-filters">${state.historyFiltersVisible ? 'Cerrar' : hasActiveFilter ? 'Cambiar filtro' : 'Filtrar por fecha'}</button>
+                    <button class="btn btn--outline filter-panel__toggle" type="button" data-action="history-toggle-filters" aria-expanded="${state.historyFiltersVisible}">${state.historyFiltersVisible ? 'Cerrar' : hasActiveFilter ? 'Cambiar fechas' : 'Ajustar fechas'}</button>
                 </div>
                 ${state.historyFiltersVisible ? `<div class="filter-panel__body">
                     <div class="history-mode-grid">
@@ -834,7 +843,8 @@ function renderHistory() {
                         <button class="btn filter-panel__done" type="submit">Hecho</button>
                     </div>
                 </div>` : ''}
-            </form>
+                </form>
+            </section>
             <p class="history-count">PARTIDOS FINALIZADOS · ${matches.length}</p>
         </section>
         <section>

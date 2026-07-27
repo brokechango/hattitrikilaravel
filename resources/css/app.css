@@ -1244,49 +1244,121 @@ noscript {
     gap: 12px;
 }
 
-.history-season-filter {
+.history-filter-shell {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
-    align-items: center;
-    gap: 16px;
-    padding: 12px 14px;
+    overflow: hidden;
+    border-radius: 8px;
+    background:
+        linear-gradient(90deg, rgb(18 43 70 / 35%), transparent 42%),
+        rgb(7 17 31 / 72%);
+    grid-template-columns: minmax(0, .95fr) minmax(0, 1.05fr);
+    transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
-.history-season-filter > span {
+.history-filter-shell--active {
+    border-color: rgb(242 190 62 / 46%);
+    box-shadow: inset 3px 0 0 rgb(242 190 62 / 78%);
+}
+
+.history-season-filter {
     display: grid;
+    min-width: 0;
+    min-height: 88px;
+    grid-template-columns: 42px minmax(120px, 1fr) minmax(148px, 190px);
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    cursor: pointer;
+}
+
+.history-season-filter:hover .history-filter-icon,
+.filter-panel__header:hover .history-filter-icon {
+    border-color: rgb(242 190 62 / 44%);
+    background: rgb(242 190 62 / 9%);
+}
+
+.history-filter-copy {
+    display: grid;
+    min-width: 0;
     gap: 2px;
 }
 
-.history-season-filter small {
+.history-filter-copy small,
+.filter-panel__eyebrow {
     color: var(--gold);
-    font-size: 11px;
+    font-size: 10px;
     font-weight: 900;
-    letter-spacing: .08em;
+    letter-spacing: .1em;
+    line-height: 14px;
 }
 
-.history-season-filter strong {
+.history-filter-copy strong {
+    overflow: hidden;
     font-size: 14px;
     line-height: 18px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
-@media (max-width: 479px) {
-    .history-season-filter {
-        grid-template-columns: 1fr;
-        gap: 10px;
-    }
+.history-filter-copy em {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 11px;
+    font-style: normal;
+    font-weight: 700;
+    line-height: 15px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.history-filter-icon {
+    display: grid;
+    width: 38px;
+    height: 38px;
+    flex: 0 0 38px;
+    place-items: center;
+    border: 1px solid rgb(111 137 163 / 38%);
+    border-radius: 6px;
+    background: rgb(16 42 69 / 72%);
+    color: var(--gold);
+    transition: border-color 160ms ease, background-color 160ms ease;
+}
+
+.history-filter-icon svg {
+    width: 18px;
+    height: 18px;
+}
+
+.history-filter-icon--season {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 900;
+}
+
+.history-season-filter__select {
+    min-height: 44px;
+    padding-left: 13px;
+    border-color: rgb(111 137 163 / 52%);
+    background-position:
+        calc(100% - 18px) 19px,
+        calc(100% - 13px) 19px;
+    font-size: 13px;
+    font-weight: 850;
+    cursor: pointer;
 }
 
 .filter-panel {
-    display: grid;
+    display: contents;
 }
 
 .filter-panel__header {
     display: flex;
     min-width: 0;
+    min-height: 88px;
     align-items: center;
-    justify-content: space-between;
     gap: 12px;
-    padding: 12px 14px;
+    padding: 14px 16px;
+    border-left: 1px solid var(--outline-variant);
 }
 
 .filter-panel__summary {
@@ -1320,14 +1392,51 @@ noscript {
 }
 
 .filter-panel__toggle {
+    min-height: 42px;
+    margin-left: auto;
     flex: 0 0 auto;
 }
 
 .filter-panel__body {
     display: grid;
+    grid-column: 1 / -1;
     gap: 12px;
-    padding: 14px;
+    padding: 16px;
     border-top: 1px solid var(--outline-variant);
+    background: rgb(5 17 31 / 42%);
+}
+
+@media (max-width: 700px) {
+    .history-filter-shell {
+        grid-template-columns: 1fr;
+    }
+
+    .filter-panel__header {
+        border-top: 1px solid var(--outline-variant);
+        border-left: 0;
+    }
+}
+
+@media (max-width: 479px) {
+    .history-season-filter {
+        grid-template-columns: 38px minmax(0, 1fr);
+    }
+
+    .history-season-filter__select {
+        grid-column: 1 / -1;
+    }
+
+    .filter-panel__header {
+        display: grid;
+        grid-template-columns: 38px minmax(0, 1fr);
+        align-items: center;
+    }
+
+    .filter-panel__toggle {
+        width: 100%;
+        margin: 2px 0 0;
+        grid-column: 1 / -1;
+    }
 }
 
 .history-mode-grid {
@@ -4492,18 +4601,15 @@ body {
 }
 
 .history-season-filter {
-    min-height: 70px;
-    padding: 12px 16px;
-    background: rgb(7 17 31 / 66%);
+    min-height: 88px;
 }
 
 .filter-panel {
-    background: rgb(7 17 31 / 66%);
+    background: transparent;
 }
 
 .filter-panel__header {
-    min-height: 70px;
-    padding: 12px 16px;
+    min-height: 88px;
 }
 
 .history-count {
