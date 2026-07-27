@@ -1,5 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
-import { calculatePlayerStats, fromHex, matchWinner, toHex } from './football';
+import {
+    aggregateGoals,
+    calculatePlayerStats,
+    countMvpVotes,
+    fromHex,
+    generateBalancedTeams,
+    matchWinner,
+    toHex,
+} from './football';
+import { formatFlooredTotal } from './formatters';
+import { normalizeSeasons, resolveSeasonId } from './seasons';
 
 const root = document.querySelector('#app');
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
@@ -10,7 +20,17 @@ const RANKING_CATEGORY_KEYS = [
     'goals-per-match',
     'most-played',
     'most-wins',
+    'player-on-form',
+    'people-favourite',
 ];
+const RANKING_SYMBOLS = {
+    'top-scorer': '⚽',
+    'goals-per-match': '🎯',
+    'most-played': '👟',
+    'most-wins': '🏆',
+    'player-on-form': '🔥',
+    'people-favourite': '★',
+};
 
 const state = {
     client: null,
@@ -23,8 +43,14 @@ const state = {
     loading: true,
     loadError: '',
     snapshot: { players: [], matches: [] },
+    seasons: [],
+    selectedSeasonId: null,
+    seasonBusy: false,
     avatars: {},
     currentPlayerId: null,
+    mvpVotes: [],
+    mvpVotingMatchId: null,
+    mvpBusy: false,
     profileDetails: {},
     menuOpen: false,
     snackbar: null,
@@ -39,8 +65,7 @@ const state = {
             return [];
         }
     })(),
-    draggedStat: '',
-    touchDrag: null,
+    statReorder: null,
     suppressStatClick: false,
     profileExplanations: false,
     historyFilter: { mode: 'all', month: '', year: '', from: '', to: '' },
@@ -110,6 +135,24 @@ function formatDate(iso, long = true) {
 function formatDecimal(value) {
     const rounded = Math.round((Number(value) || 0) * 10) / 10;
     return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1).replace('.', ',');
+}
+
+function formatSignedDecimal(value) {
+    const numericValue = Number(value) || 0;
+
+    if (numericValue > 0) {
+        return `+${formatDecimal(numericValue)}`;
+    }
+
+    if (numericValue < 0) {
+        return `−${formatDecimal(Math.abs(numericValue))}`;
+    }
+
+    return '0';
+}
+
+function formatPenaltyScore(teamAScore, teamBScore) {
+    return `(${teamAScore} - ${teamBScore})`;
 }
 
 function currentRoute() {
@@ -220,6 +263,20 @@ function normalizeAccess(data) {
     } : null;
 }
 
+function normalizeMatches(matches) {
+    return (matches || []).map((match) => ({
+        id: match.id,
+        playedOn: match.played_on,
+        seasonId: Number(match.season_id),
+        teamAScore: Number(match.team_a_score),
+        teamBScore: Number(match.team_b_score),
+        teamAPenaltyScore: match.team_a_penalty_score == null ? null : Number(match.team_a_penalty_score),
+        teamBPenaltyScore: match.team_b_penalty_score == null ? null : Number(match.team_b_penalty_score),
+        participants: match.participants || [],
+        goals: match.goals || [],
+    })).sort((a, b) => b.playedOn.localeCompare(a.playedOn));
+}
+
 function normalizeSnapshot(players, matches) {
     return {
         players: (players || []).map((player) => ({
@@ -227,33 +284,30 @@ function normalizeSnapshot(players, matches) {
             name: player.name,
             isActive: player.is_active ?? true,
         })),
-        matches: (matches || []).map((match) => ({
-            id: match.id,
-            playedOn: match.played_on,
-            teamAScore: Number(match.team_a_score),
-            teamBScore: Number(match.team_b_score),
-            teamAPenaltyScore: match.team_a_penalty_score == null ? null : Number(match.team_a_penalty_score),
-            teamBPenaltyScore: match.team_b_penalty_score == null ? null : Number(match.team_b_penalty_score),
-            participants: match.participants || [],
-            goals: match.goals || [],
-        })).sort((a, b) => b.playedOn.localeCompare(a.playedOn)),
+        matches: normalizeMatches(matches),
     };
 }
 
 async function loadApplicationData(force = false) {
     if (!state.access) return;
+    const requestedSeasonId = state.selectedSeasonId;
     state.loading = true;
     state.loadError = '';
     if (force) render();
     try {
-        const [players, matches, currentPlayerRows, avatarRows] = await Promise.all([
+        const [players, seasons, matches, currentPlayerRows, avatarRows, mvpVotes] = await Promise.all([
             rpc('get_public_league_players'),
-            rpc('get_public_friendly_matches'),
+            rpc('get_league_seasons'),
+            rpc('get_public_friendly_matches', { p_season_id: requestedSeasonId }),
             rpc('get_current_league_player_id').catch(() => []),
             rpc('get_league_player_avatars').catch(() => []),
+            rpc('get_league_match_mvp_votes').catch(() => []),
         ]);
+        state.seasons = normalizeSeasons(seasons);
+        state.selectedSeasonId = resolveSeasonId(state.seasons, requestedSeasonId);
         state.snapshot = normalizeSnapshot(players, matches);
         state.currentPlayerId = (Array.isArray(currentPlayerRows) ? currentPlayerRows[0] : currentPlayerRows)?.player_id ?? null;
+        state.mvpVotes = mvpVotes || [];
         state.avatars = await loadSignedAvatars(avatarRows);
         state.profileDetails = {};
         state.loading = false;
@@ -264,6 +318,33 @@ async function loadApplicationData(force = false) {
         state.loadError = errorMessage(error, 'No se han podido cargar los datos de la liga. Inténtalo de nuevo.');
     }
     render();
+}
+
+async function selectSeason(seasonId) {
+    if (state.seasonBusy || seasonId === state.selectedSeasonId) return;
+    const season = state.seasons.find((item) => item.id === seasonId);
+    if (!season) return;
+
+    const previousSeasonId = state.selectedSeasonId;
+    state.selectedSeasonId = seasonId;
+    state.seasonBusy = true;
+    render();
+
+    try {
+        const matches = await rpc('get_public_friendly_matches', { p_season_id: seasonId });
+        state.snapshot.matches = normalizeMatches(matches);
+        state.profileDetails = {};
+    } catch (error) {
+        state.selectedSeasonId = previousSeasonId;
+        showSnackbar(errorMessage(error, 'No se ha podido cargar la temporada.'), true);
+    } finally {
+        state.seasonBusy = false;
+        render();
+    }
+}
+
+async function refreshMvpVotes() {
+    state.mvpVotes = await rpc('get_league_match_mvp_votes');
 }
 
 async function loadSignedAvatars(rows) {
@@ -296,7 +377,12 @@ function teamLabel(match, team) {
 }
 
 function calculateStats() {
-    return calculatePlayerStats(state.snapshot);
+    const mvpVoteCounts = countMvpVotes(state.mvpVotes);
+
+    return calculatePlayerStats(state.snapshot).map((item) => ({
+        ...item,
+        mvpVotes: mvpVoteCounts[item.player.id] || 0,
+    }));
 }
 
 const RANKINGS = {
@@ -371,18 +457,33 @@ const RANKINGS = {
     },
     'player-on-form': {
         label: 'Jugador en racha',
-        description: 'Suma 1 punto por partido jugado, gol y victoria. Los porteros pueden añadir hasta 2 puntos por partido como portero, descontando los goles encajados que tengan asignados (nunca por debajo de 0). En caso de empate, se comparan goles, victorias y, por último, menos goles encajados asignados.',
-        sort: (a, b) => b.totalPerformance - a.totalPerformance
-            || b.goals - a.goals
-            || b.wins - a.wins
-            || (a.assignedGoalsAgainst ?? Number.MAX_SAFE_INTEGER)
-                - (b.assignedGoalsAgainst ?? Number.MAX_SAFE_INTEGER),
+        scopeLabel: 'FORMA · ÚLTIMOS 5 PARTIDOS',
+        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos Elo y cada autogol resta 3. Los últimos cinco partidos pesan 1, 0,8, 0,6, 0,4 y 0,2, del más reciente al más antiguo. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
+        filter: (item) => item.isFormEligible,
+        sort: (a, b) => b.formScore - a.formScore
+            || b.latestFormImpact - a.latestFormImpact
+            || b.formGoals - a.formGoals
+            || b.formWins - a.formWins
+            || b.eloRating - a.eloRating
+            || a.player.name.localeCompare(b.player.name, 'es'),
+        columns: [
+            ['PJ', (item) => item.formMatches],
+            ['G', (item) => item.formGoals],
+            ['V‑E‑D', (item) => `${item.formWins}-${item.formDraws}-${item.formLosses}`],
+            ['PUNTOS', (item) => formatFlooredTotal(item.formScore), true],
+        ],
+    },
+    'people-favourite': {
+        label: 'El preferido del pueblo',
+        scopeLabel: 'VOTACIONES MVP · TODOS LOS PARTIDOS',
+        description: 'Suma los votos MVP recibidos después de cada partido. Solo pueden votar los jugadores que participaron en esa acta y cada participante dispone de un voto por partido.',
+        filter: (item) => item.mvpVotes > 0,
+        sort: (a, b) => b.mvpVotes - a.mvpVotes
+            || b.matchesPlayed - a.matchesPlayed
+            || a.player.name.localeCompare(b.player.name, 'es'),
         columns: [
             ['PJ', (item) => item.matchesPlayed],
-            ['G', (item) => item.goals],
-            ['GC', (item) => formatDecimal(item.goalsAgainst)],
-            ['V', (item) => item.wins],
-            ['TOTAL', (item) => item.totalPerformance, true],
+            ['MVP', (item) => item.mvpVotes, true],
         ],
     },
 };
@@ -489,9 +590,16 @@ function pageHeader(title, subtitle = '', actions = '') {
 }
 
 function stateView(type, title, copy, action = '') {
-    const symbol = type === 'error' ? '!' : type === 'loading' ? '•••' : '⚽';
+    const symbol = type === 'error' ? '!' : '⚽';
+    const visual = type === 'loading'
+        ? `<div class="bouncing-ball-loader" aria-hidden="true">
+            <span class="bouncing-ball-loader__ball">⚽</span>
+            <span class="bouncing-ball-loader__shadow"></span>
+        </div>`
+        : `<div class="state-icon">${symbol}</div>`;
+
     return `<div class="${type}-state">
-        <div><div class="state-icon">${symbol}</div><h2 class="state-title">${esc(title)}</h2>
+        <div>${visual}<h2 class="state-title">${esc(title)}</h2>
         <p class="state-copy">${esc(copy)}</p>${action}</div>
     </div>`;
 }
@@ -554,8 +662,8 @@ function renderAuth() {
                     <span><strong>HATTITRIKI FC</strong><small>LIGA GENUINE</small></span>
                 </div>
                 <div class="auth-intro__copy">
-                    <span class="auth-intro__kicker">EL FÚTBOL DE LOS JUEVES</span>
-                    <h2>Tu liga.<br>Todos los números.</h2>
+                    <span class="auth-intro__kicker">EL FÚTBOL DE LOS DOMINGOS</span>
+                    <h2 class="auth-intro__title"><span>Campeones 3</span><span>Las Estadisticas</span></h2>
                     <p>Resultados, actas, rachas y rankings del grupo en un mismo vestuario digital.</p>
                 </div>
                 <div class="auth-match-preview" aria-hidden="true">
@@ -583,12 +691,15 @@ function renderAuth() {
 }
 
 function renderAccessCheck() {
-    root.innerHTML = `<main class="auth-stage" aria-label="Comprobando el acceso">
+    root.innerHTML = `<main class="auth-stage" aria-busy="true" aria-label="Comprobando el acceso">
         <section class="auth-card auth-card--loading">
             <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
             <h1>HATTITRIKI FC</h1>
             <p class="auth-description">Comprobando el acceso a la liga…</p>
-            <div class="loading-line"></div>
+            <div class="bouncing-ball-loader" aria-hidden="true">
+                <span class="bouncing-ball-loader__ball">⚽</span>
+                <span class="bouncing-ball-loader__shadow"></span>
+            </div>
         </section>
     </main>`;
 }
@@ -599,13 +710,14 @@ function renderHome() {
         <div class="card">${stateView('error', 'No se han podido cargar las estadísticas', state.loadError, `<button class="btn" data-action="refresh">Reintentar</button>`)}</div></section>`;
 
     const latest = state.snapshot.matches[0];
-    const stats = calculateStats();
     const totalGoals = state.snapshot.matches.reduce((total, match) => total + match.teamAScore + match.teamBScore, 0);
+    const selectedSeason = state.seasons.find((season) => season.id === state.selectedSeasonId);
     const featuredByKey = {
         'top-scorer': ['⚽', 'Máximo goleador', ranking('top-scorer')[0], (item) => item.goals, 'goles', 'top-scorer'],
         'goals-per-match': ['🎯', 'Goles / partido', ranking('goals-per-match')[0], (item) => formatDecimal(item.goalsPerMatch), 'goles por partido', 'goals-per-match'],
         'most-played': ['👟', 'Más jugado', ranking('most-played')[0], (item) => item.matchesPlayed, 'partidos', 'most-played'],
         'most-wins': ['🏆', 'Más victorias', ranking('most-wins')[0], (item) => item.wins, 'victorias', 'most-wins'],
+        'player-on-form': ['🔥', 'Jugador en racha', ranking('player-on-form')[0], (item) => formatFlooredTotal(item.formScore), 'puntos recientes', 'player-on-form'],
     };
     const defaultOrder = Object.keys(featuredByKey);
     const normalizedOrder = [...state.homeOrder.filter((key) => featuredByKey[key]), ...defaultOrder.filter((key) => !state.homeOrder.includes(key))];
@@ -621,26 +733,28 @@ function renderHome() {
             </div>
             <div class="league-overview__stat"><small>PARTIDOS</small><strong>${state.snapshot.matches.length}</strong></div>
             <div class="league-overview__stat"><small>GOLES</small><strong>${totalGoals}</strong></div>
-            <div class="league-overview__status"><i></i><span>Temporada activa</span></div>
+            <div class="league-overview__status"><i></i><span>${esc(selectedSeason?.name || 'Temporada actual')}</span></div>
         </section>
         <section>
             ${latest ? `<a class="card card--highlight card--clickable hero-score" href="#/partidos/${toHex(latest.id)}">
                 <div class="hero-score__meta"><span class="eyebrow"><i class="live-dot"></i> ÚLTIMO RESULTADO</span><span class="hero-score__date">${esc(formatDate(latest.playedOn))} · FINAL</span></div>
-                <div class="score-line">
+                <div class="score-line${latest.teamAPenaltyScore != null ? ' score-line--with-shootout' : ''}">
                     <span class="team-name"><i class="team-mark">A</i><b>Equipo A</b></span>
-                    <strong class="score-pill">${latest.teamAScore} <small>—</small> ${latest.teamBScore}</strong>
+                    <span class="hero-score__result">
+                        <strong class="score-pill">${latest.teamAScore} <small>—</small> ${latest.teamBScore}</strong>
+                        ${latest.teamAPenaltyScore != null ? `<strong class="hero-score__shootout penalty-score" aria-label="Penaltis: ${latest.teamAPenaltyScore} a ${latest.teamBPenaltyScore}">${formatPenaltyScore(latest.teamAPenaltyScore, latest.teamBPenaltyScore)}</strong>` : ''}
+                    </span>
                     <span class="team-name"><b>Equipo B</b><i class="team-mark team-mark--gold">B</i></span>
                 </div>
-                ${latest.teamAPenaltyScore != null ? `<div class="penalty-line">${latest.teamAPenaltyScore} - ${latest.teamBPenaltyScore} en penaltis</div>` : ''}
                 <span class="hero-score__cta">Ver acta completa <b>→</b></span>
             </a>` : `<div class="card">${stateView('empty', 'Aún no hay resultados', 'Cuando se guarde el primer partido aparecerá aquí.')}</div>`}
         </section>
         <section class="home-season">
-            <div class="home-season__heading"><p class="eyebrow">TEMPORADA</p><h2 class="section-heading">Estadísticas de la liga</h2>
+            <div class="home-season__heading"><p class="eyebrow">${esc(selectedSeason?.name || 'TEMPORADA')}</p><h2 class="section-heading">Estadísticas de la liga</h2>
                 <p class="muted">${state.snapshot.matches.length} partidos · ${totalGoals} goles</p></div>
-            <p class="home-drag-help">Mantén pulsada una tarjeta y arrástrala para cambiar su posición.</p>
+            <p class="home-drag-help" id="home-drag-help">Mantén pulsada una tarjeta y arrástrala para cambiar su posición.</p>
             <div class="stats-grid">
-                ${featured.map(([symbol, label, item, value, detail, category]) => `<button class="card card--clickable stat-card" type="button" draggable="true" data-action="open-ranking" data-category="${category}" data-stat-key="${category}">
+                ${featured.map(([symbol, label, item, value, detail, category]) => `<button class="card card--clickable stat-card" type="button" draggable="false" data-action="open-ranking" data-category="${category}" data-stat-key="${category}" aria-describedby="home-drag-help">
                     ${state.avatars[item.player.id] ? `<img class="stat-card__avatar" src="${esc(state.avatars[item.player.id])}" alt="">` : ''}
                     <span class="stat-card__accent" aria-hidden="true"></span>
                     <span class="stat-card__content">
@@ -650,6 +764,7 @@ function renderHome() {
                     </span>
                 </button>`).join('')}
             </div>
+            <p class="visually-hidden" id="stat-reorder-status" role="status" aria-live="polite"></p>
         </section>
     </section>`;
 }
@@ -657,6 +772,7 @@ function renderHome() {
 function renderHistory() {
     if (state.loading) return pageLoading('Resultados');
     const filter = state.historyFilter;
+    const selectedSeason = state.seasons.find((season) => season.id === state.selectedSeasonId);
     const matches = state.snapshot.matches.filter((match) => {
         if (filter.mode === 'month' && filter.month && filter.year) return match.playedOn.startsWith(`${filter.year}-${filter.month}`);
         if (filter.mode === 'year' && filter.year) return match.playedOn.startsWith(`${filter.year}-`);
@@ -678,8 +794,14 @@ function renderHistory() {
                 : 'Todos los partidos';
     const availableYears = years.length ? years : [String(new Date().getFullYear())];
     return `<section class="page history-page">
-        ${pageHeader('Resultados', 'Todos los partidos guardados de la liga del grupo.')}
+        ${pageHeader('Resultados', `Partidos de ${selectedSeason?.name || 'la temporada actual'}.`)}
         <section class="history-sticky">
+            <label class="card history-season-filter">
+                <span><small>TEMPORADA</small><strong>${esc(selectedSeason?.name || 'Temporada actual')}</strong></span>
+                <select class="select" id="history-season-filter" ${state.seasonBusy ? 'disabled' : ''} aria-label="Filtrar partidos por temporada">
+                    ${state.seasons.map((season) => `<option value="${season.id}" ${season.id === state.selectedSeasonId ? 'selected' : ''}>${esc(season.name)}${season.isCurrent ? ' · Actual' : ''}</option>`).join('')}
+                </select>
+            </label>
             <form id="history-filter" class="card filter-panel${hasActiveFilter ? ' card--highlight' : ''}">
                 <div class="filter-panel__header">
                     <div class="filter-panel__summary">
@@ -726,7 +848,7 @@ function renderMatchRow(match) {
     return `<a class="card card--clickable match-row" href="#/partidos/${toHex(match.id)}" aria-label="Abrir partido del ${esc(formatDate(match.playedOn))}, ${match.teamAScore} a ${match.teamBScore}">
         <span class="match-row__meta"><span class="match-row__date">${esc(formatDate(match.playedOn))}</span><span class="match-row__final">FINAL</span></span>
         <span class="match-row__score"><span class="match-row__team"><i class="team-mark">A</i>Equipo A</span><strong class="score-pill">${match.teamAScore} - ${match.teamBScore}</strong><span class="match-row__team">Equipo B<i class="team-mark team-mark--gold">B</i></span></span>
-        <span class="match-row__penalties">${match.teamAPenaltyScore != null ? `${match.teamAPenaltyScore} - ${match.teamBPenaltyScore} en penaltis` : '&nbsp;'}</span>
+        <span class="match-row__penalties">${match.teamAPenaltyScore != null ? `<span class="penalty-score">${formatPenaltyScore(match.teamAPenaltyScore, match.teamBPenaltyScore)}</span>` : '&nbsp;'}</span>
     </a>`;
 }
 
@@ -734,12 +856,6 @@ function renderRankings() {
     if (state.loading) return pageLoading('Rankings');
     const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
     const entries = ranking(state.rankingCategory);
-    const categorySymbols = {
-        'top-scorer': '⚽',
-        'goals-per-match': '🎯',
-        'most-played': '👟',
-        'most-wins': '🏆',
-    };
     const showRecentForm = state.rankingView === 'detailed';
     const rankingRowClasses = `ranking-row--metrics-${definition.columns.length}${showRecentForm ? ' ranking-row--detailed' : ''}`;
     const filters = `<div class="ranking-category-grid">${RANKING_CATEGORY_KEYS.map((key) => {
@@ -749,8 +865,8 @@ function renderRankings() {
     return `<section class="page rankings-page">
         ${pageHeader('Rankings')}
         <section class="card card--highlight ranking-summary">
-            <span class="ranking-summary__icon">${categorySymbols[state.rankingCategory] || '⚽'}</span>
-            <span class="ranking-summary__copy"><strong>${esc(definition.label)}</strong><small>CLASIFICACIÓN DE LA TEMPORADA · ${entries.length} JUGADORES</small></span>
+            <span class="ranking-summary__icon">${RANKING_SYMBOLS[state.rankingCategory] || '⚽'}</span>
+            <span class="ranking-summary__copy"><strong>${esc(definition.label)}</strong><small>${esc(definition.scopeLabel || 'CLASIFICACIÓN DE LA TEMPORADA')} · ${entries.length} JUGADORES</small></span>
             <button class="ranking-summary__info" type="button" data-action="ranking-info" aria-label="Información sobre ${esc(definition.label)}">i</button>
         </section>
         <button class="btn btn--outline rankings-filters-toggle" type="button" data-action="toggle-ranking-filters">${state.rankingFiltersVisible ? 'Ocultar filtros' : 'Mostrar filtros'}</button>
@@ -905,36 +1021,114 @@ function renderMatchDetail(id) {
     if (state.loading) return pageLoading('Acta del partido');
     const match = state.snapshot.matches.find((item) => item.id === id);
     if (!match) return `<section class="page">${pageHeader('Acta del partido')}<div class="card">${stateView('error', 'Partido no encontrado', 'No se ha podido abrir esta acta.', `<button class="btn" data-action="back">Volver</button>`)}</div></section>`;
-    const goalEntries = match.goals.filter((goal) => Number(goal.count) > 0);
     const teamForGoal = (goal) => goal.team || match.participants.find((participant) => participant.player_id === goal.player_id)?.team || 'A';
+    const goalEntries = aggregateGoals(match.goals, match.participants);
+    const totalRecordedGoals = goalEntries.reduce((total, goal) => total + Number(goal.count), 0);
+    const participantCount = new Set(match.participants.map((participant) => participant.player_id)).size;
     return `<section class="page match-detail-page">
         ${pageHeader(formatDate(match.playedOn), 'Acta del partido y alineaciones.')}
         <div class="match-detail-grid">
-            <section class="scoreboard">
-                <div class="scoreboard__main"><span class="scoreboard__team">Equipo A</span><strong class="score-pill">${match.teamAScore} - ${match.teamBScore}</strong><span class="scoreboard__team">Equipo B</span></div>
-                ${match.teamAPenaltyScore != null ? `<p class="penalty-line">${match.teamAPenaltyScore} - ${match.teamBPenaltyScore} en penaltis</p>` : ''}
+            <section class="card card--highlight scoreboard match-scoreboard">
+                <div class="match-scoreboard__meta">
+                    <span class="match-scoreboard__status"><i></i> FINALIZADO</span>
+                    <span>${participantCount} jugadores · ${totalRecordedGoals} goles registrados</span>
+                </div>
+                <div class="scoreboard__main">
+                    <span class="scoreboard__team"><i class="team-mark">A</i><b>Equipo A</b></span>
+                    <span class="scoreboard__score">
+                        <strong class="score-pill">${match.teamAScore} <small>—</small> ${match.teamBScore}</strong>
+                        ${match.teamAPenaltyScore != null ? `<strong class="scoreboard__shootout penalty-score" aria-label="Penaltis: ${match.teamAPenaltyScore} a ${match.teamBPenaltyScore}">${formatPenaltyScore(match.teamAPenaltyScore, match.teamBPenaltyScore)}</strong>` : ''}
+                    </span>
+                    <span class="scoreboard__team"><b>Equipo B</b><i class="team-mark team-mark--gold">B</i></span>
+                </div>
             </section>
-            <section class="match-teams"><h2 class="section-heading">Equipos</h2><div class="team-grid">
-                ${['A', 'B'].map((team) => `<div class="card team-card"><h3 class="team-card__heading">Equipo ${team}</h3>
-                    <div class="team-card__players">${teamParticipants(match, team).map((participant) => `<a class="player-line card--clickable" href="#/rankings/jugador/${toHex(participant.player_id)}">${participant.was_goalkeeper ? '<span class="goalkeeper-glove" title="Portero">🧤</span>' : ''}<span class="player-line__name">${esc(playerName(participant.player_id))}</span></a>`).join('') || '<div class="player-line muted">Sin jugadores</div>'}</div>
-                </div>`).join('')}
+            <section class="match-detail-section match-teams">
+                <header class="match-detail-section__header"><div><span>PLANTILLAS</span><h2 class="section-heading">Alineaciones</h2></div><strong>${participantCount} jugadores</strong></header>
+                <div class="team-grid">
+                ${['A', 'B'].map((team) => {
+                    const participants = teamParticipants(match, team);
+                    return `<section class="card team-card team-card--${team.toLowerCase()}">
+                        <header class="team-card__heading"><i class="team-mark${team === 'B' ? ' team-mark--gold' : ''}">${team}</i><span><small>EQUIPO</small><strong>Equipo ${team}</strong></span><b>${participants.length}</b></header>
+                        <div class="team-card__players">${participants.map((participant) => {
+                            const player = playerById(participant.player_id);
+                            return `<a class="player-line card--clickable" href="#/rankings/jugador/${toHex(participant.player_id)}">
+                                ${avatar(player)}
+                                <span class="player-line__copy"><strong class="player-line__name">${esc(playerName(participant.player_id))}</strong><small>${participant.was_goalkeeper ? 'Portero' : 'Jugador'}</small></span>
+                                ${participant.was_goalkeeper ? '<span class="goalkeeper-glove" title="Portero">🧤</span>' : ''}
+                                <span class="player-line__chevron" aria-hidden="true">›</span>
+                            </a>`;
+                        }).join('') || '<div class="player-line muted">Sin jugadores</div>'}</div>
+                    </section>`;
+                }).join('')}
             </div></section>
-            <section class="match-goals"><h2 class="section-heading">Goles</h2><div class="goals-card">
+            <section class="match-detail-section match-goals">
+                <header class="match-detail-section__header"><div><span>CRONOLOGÍA</span><h2 class="section-heading">Goles</h2></div><strong>${totalRecordedGoals} en total</strong></header>
+                <div class="goals-card">
                 ${goalEntries.length ? goalEntries.map((goal) => {
                     const team = teamForGoal(goal);
-                    const keeperTeam = team === 'A' ? 'B' : 'A';
                     const ownGoal = Boolean(goal.is_own_goal);
                     return `<a class="goal-entry goal-entry--${team.toLowerCase()}${ownGoal ? ' goal-entry--own' : ''}" href="#/rankings/jugador/${toHex(goal.player_id)}">
                         <span class="goal-entry__top">
                             <span class="goal-entry__icon">${ownGoal ? 'PP' : '⚽'}</span>
-                            <span class="goal-entry__copy"><small>Gol para el Equipo ${team}</small><strong>${esc(playerName(goal.player_id))}</strong>${ownGoal ? '<em>En propia puerta</em>' : ''}</span>
+                            <span class="goal-entry__copy"><small>EQUIPO ${team}</small><strong>${esc(playerName(goal.player_id))}</strong>${ownGoal ? '<em>En propia puerta</em>' : ''}</span>
                             <strong class="goal-entry__count">×${Number(goal.count)}</strong>
                         </span>
-                        ${goal.goalkeeper_id ? `<span class="goal-entry__keeper"><span>🧤</span><span><small>${Number(goal.count) === 1 ? 'Encajado por' : 'Encajados por'}</small><strong>${esc(playerName(goal.goalkeeper_id))} · Equipo ${keeperTeam}</strong></span></span>` : ''}
                     </a>`;
                 }).join('') : '<p class="goals-card__empty">No se registraron goleadores.</p>'}
             </div></section>
+            ${renderMatchMvp(match)}
         </div>
+    </section>`;
+}
+
+function renderMatchMvp(match) {
+    const participantIds = [...new Set(
+        match.participants.map((participant) => participant.player_id),
+    )];
+    const matchVotes = state.mvpVotes.filter((vote) => vote.match_id === match.id);
+    const voteCounts = new Map(
+        matchVotes.map((vote) => [vote.nominee_player_id, Number(vote.vote_count)]),
+    );
+    const currentVote = matchVotes.find((vote) => vote.is_current_vote);
+    const eligible = Boolean(
+        state.currentPlayerId && participantIds.includes(state.currentPlayerId),
+    );
+    const panelOpen = state.mvpVotingMatchId === match.id;
+
+    return `<section class="card match-mvp">
+        <div class="match-mvp__intro">
+            <span class="match-mvp__symbol" aria-hidden="true">★</span>
+            <div class="match-mvp__copy">
+                <span>VOTACIÓN DEL PARTIDO</span>
+                <h2>¿Quién fue el MVP?</h2>
+                <p>${eligible
+                    ? 'Elige al jugador más destacado. Puedes cambiar tu voto cuando quieras.'
+                    : 'Solo los jugadores que participaron en este partido pueden votar.'}</p>
+            </div>
+            <div class="match-mvp__action">
+                ${currentVote ? `<span class="match-mvp__current">Tu voto: <strong>${esc(playerName(currentVote.nominee_player_id))}</strong></span>` : ''}
+                <button class="btn match-mvp__button" type="button" data-action="toggle-mvp-vote" data-match-id="${esc(match.id)}" ${eligible && !state.mvpBusy ? '' : 'disabled'}>
+                    ${currentVote ? 'Cambiar mi voto' : 'Votar al MVP'}
+                </button>
+            </div>
+        </div>
+        ${panelOpen && eligible ? `<div class="match-mvp__panel">
+            <p>Selecciona un jugador de la alineación</p>
+            <div class="mvp-candidate-grid">
+                ${participantIds.map((playerId) => {
+                    const player = playerById(playerId);
+                    const selected = currentVote?.nominee_player_id === playerId;
+                    const team = match.participants.find((participant) => participant.player_id === playerId)?.team || '';
+                    const votes = voteCounts.get(playerId) || 0;
+                    return `<button class="mvp-candidate${selected ? ' mvp-candidate--selected' : ''}" type="button" data-action="cast-mvp-vote" data-match-id="${esc(match.id)}" data-player-id="${esc(playerId)}" aria-pressed="${selected}" ${state.mvpBusy ? 'disabled' : ''}>
+                        ${avatar(player)}
+                        <span class="mvp-candidate__copy"><strong>${esc(playerName(playerId))}</strong><small>Equipo ${esc(team)}</small></span>
+                        <span class="mvp-candidate__votes">${votes} ${votes === 1 ? 'voto' : 'votos'}</span>
+                        <span class="mvp-candidate__check" aria-hidden="true">${selected ? '✓' : '›'}</span>
+                    </button>`;
+                }).join('')}
+            </div>
+        </div>` : ''}
     </section>`;
 }
 
@@ -971,6 +1165,29 @@ function restrictedPage() {
 
 function renderDialog() {
     const dialog = state.dialog;
+    if (dialog.variant === 'ranking-info') {
+        return `<div class="dialog-backdrop dialog-backdrop--ranking-info" role="presentation"><section class="dialog dialog--ranking-info" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">
+            <div class="ranking-dialog__accent" aria-hidden="true"></div>
+            <header class="ranking-dialog__header">
+                <span class="ranking-dialog__symbol" aria-hidden="true">${esc(dialog.symbol || '⚽')}</span>
+                <div class="ranking-dialog__heading">
+                    <span class="ranking-dialog__eyebrow">Criterio de clasificación</span>
+                    <h2 id="dialog-title">${esc(dialog.title)}</h2>
+                </div>
+                <button class="ranking-dialog__close" type="button" data-action="dialog-confirm" aria-label="Cerrar información">${icon('close')}</button>
+            </header>
+            <div class="ranking-dialog__body">
+                <span class="ranking-dialog__info-icon" aria-hidden="true">${icon('info')}</span>
+                <div>
+                    <strong>Cómo funciona</strong>
+                    <p id="dialog-description">${esc(dialog.message)}</p>
+                </div>
+            </div>
+            <div class="dialog__actions ranking-dialog__actions">
+                <button class="btn ranking-dialog__button" data-action="dialog-confirm">${esc(dialog.confirmLabel || 'Entendido')}</button>
+            </div>
+        </section></div>`;
+    }
     return `<div class="dialog-backdrop" role="presentation"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <h2 id="dialog-title">${esc(dialog.title)}</h2>${dialog.content || `<p>${esc(dialog.message)}</p>`}
         <div class="dialog__actions">${dialog.singleAction ? '' : `<button class="btn btn--text" data-action="dialog-cancel">${esc(dialog.cancelLabel || 'Cancelar')}</button>`}
@@ -1074,6 +1291,8 @@ async function authorizeAndLoad() {
             renderAuth();
             return;
         }
+        state.seasons = [];
+        state.selectedSeasonId = null;
         loadUserPreferences();
         if (!location.hash.startsWith('#/')) navigate('/inicio', true);
         await loadApplicationData();
@@ -1318,21 +1537,23 @@ function renderMatchForm(id = '') {
         hasValidMatchBasics(draft) && hasValidMatchTeams(draft),
         hasValidMatchBasics(draft) && hasValidMatchTeams(draft) && hasValidMatchGoals(draft),
     ];
-    return `<section class="page stack stack--wide">
+    return `<section class="page stack stack--wide match-editor-page">
         ${pageHeader(id ? 'Editar acta' : 'Nueva acta', id ? 'Revisa el partido paso a paso y guarda los cambios.' : 'Completa partido, equipos y goles en tres pasos.')}
-        <div class="stepper" aria-label="Pasos del acta">
+        <nav class="stepper" aria-label="Pasos del acta">
             ${[['Partido', 1], ['Equipos', 2], ['Goles', 3]].map(([label, number]) => {
                 const canOpen = number === 1 || (number === 2 ? complete[0] : complete[1]);
-                return `<button class="step ${state.matchStep === number ? 'step--active' : ''} ${complete[number - 1] ? 'step--done' : ''}" type="button" data-action="match-step" data-step="${number}" ${canOpen ? '' : 'disabled'}><span class="step__number">${complete[number - 1] ? '✓' : number}</span><span class="step__label">${label}</span></button>`;
+                return `<button class="step ${state.matchStep === number ? 'step--active' : ''} ${complete[number - 1] ? 'step--done' : ''}" type="button" data-action="match-step" data-step="${number}" ${state.matchStep === number ? 'aria-current="step"' : ''} ${canOpen ? '' : 'disabled'}><span class="step__number">${complete[number - 1] ? '✓' : number}</span><span class="step__copy"><small>Paso ${number}</small><span class="step__label">${label}</span></span></button>`;
             }).join('')}
-        </div>
-        <form id="match-form" class="card card__body--large form-card stack stack--wide" data-id="${esc(id)}">
-            ${draft.draftLoaded ? '<div class="auth-message auth-success">Se han cargado los equipos guardados en el generador. <button class="btn btn--text btn--compact" type="button" data-action="discard-team-draft">Descartar borrador y vaciar equipos</button></div>' : ''}
-            ${state.matchStep === 1 ? renderMatchBasics(draft) : state.matchStep === 2 ? renderMatchTeams(draft) : renderMatchGoals(draft)}
-            <div class="inline inline--end">
+        </nav>
+        <form id="match-form" class="card form-card match-editor" data-id="${esc(id)}">
+            <div class="match-editor__body">
+                ${draft.draftLoaded ? '<div class="auth-message auth-success">Se han cargado los equipos guardados en el generador. <button class="btn btn--text btn--compact" type="button" data-action="discard-team-draft">Descartar borrador y vaciar equipos</button></div>' : ''}
+                ${state.matchStep === 1 ? renderMatchBasics(draft) : state.matchStep === 2 ? renderMatchTeams(draft) : renderMatchGoals(draft)}
+            </div>
+            <footer class="match-editor__actions">
                 <button class="btn btn--text" type="button" data-action="${state.matchStep === 1 ? 'back' : 'match-previous'}">${state.matchStep === 1 ? 'Cancelar' : 'Atrás'}</button>
                 ${state.matchStep < 3 ? `<button class="btn" type="button" data-action="match-next">${state.matchStep === 1 ? 'Continuar' : `Continuar · ${assigned} jugadores`}</button>` : '<button class="btn" type="submit">Guardar acta</button>'}
-            </div>
+            </footer>
         </form>
     </section>`;
 }
@@ -1447,7 +1668,7 @@ function renderMatchGoals(draft) {
             <div class="mini-stat"><span>Equipo A</span><strong>${assignedA} / ${nonNegativeInteger(draft.scoreA) ?? 0}</strong><small>goles asignados</small></div>
             <div class="mini-stat"><span>Equipo B</span><strong>${assignedB} / ${nonNegativeInteger(draft.scoreB) ?? 0}</strong><small>goles asignados</small></div>
         </div>
-        <div id="goal-rows" class="stack">${draft.goals.map((goal, index) => `<div class="card card__body form-grid" data-goal-index="${index}">
+        <div id="goal-rows" class="stack">${draft.goals.map((goal, index) => `<div class="card card__body form-grid match-goal-row" data-goal-index="${index}">
             <label class="field"><span>${goal.ownGoal ? 'Jugador que marca en propia' : 'Goleador'}</span><select class="select" data-goal-field="playerId" data-index="${index}"><option value="">Elegir jugador</option>${assignedPlayers.filter((player) => {
                 const scorerTeam = goal.ownGoal ? (goal.team === 'A' ? 'B' : 'A') : goal.team;
                 return draft.assignments[player.id]?.includes(scorerTeam);
@@ -1590,7 +1811,7 @@ function renderRandomizer() {
             <hr class="divider">
             <div class="form-grid">
                 <div class="field"><span>Número de equipos</span><div class="counter"><button type="button" data-action="randomizer-decrease">−</button><output>${randomizer.teams}</output><button type="button" data-action="randomizer-increase">+</button></div></div>
-                <div class="switch-row"><div><strong>Equilibrar por rendimiento</strong><div class="muted">Compensa goles, victorias, partidos y portería.</div></div><label class="switch"><input id="randomizer-balance" type="checkbox" ${randomizer.balanceStats ? 'checked' : ''}><span class="switch__track"></span></label></div>
+                <div class="switch-row"><div><strong>Equilibrar por rendimiento</strong><div class="muted">Compensa los puntos de forma de los últimos cinco partidos.</div></div><label class="switch"><input id="randomizer-balance" type="checkbox" ${randomizer.balanceStats ? 'checked' : ''}><span class="switch__track"></span></label></div>
             </div>
             <div class="randomizer-summary"><div class="summary-chip"><strong>${randomizer.teams}</strong>equipos</div><div class="summary-chip"><strong>${selected}</strong>jugadores</div><div class="summary-chip"><strong>${perTeam}${selected % randomizer.teams ? '–' + (perTeam + 1) : ''}</strong>por equipo</div></div>
             <button class="btn btn--wide" type="button" data-action="randomizer-draw" ${selected < 2 || randomizer.teams > selected ? 'disabled' : ''}>${icon('shuffle')} Generar equipos</button>
@@ -1605,43 +1826,12 @@ function drawTeams() {
         .filter((player) => randomizer.selected.has(player.id))
         .map((player) => {
             const item = stats.get(player.id);
-            const statsScore = item
-                ? item.goals * 3 + item.wins * 2 + item.matchesPlayed + item.goalkeeperMatches - (item.goalsAgainstPerMatch || 0)
-                : 0;
+            const statsScore = item?.isFormEligible ? item.formScore : 0;
             return { ...player, statsScore };
         });
-    for (let index = selected.length - 1; index > 0; index -= 1) {
-        const target = Math.floor(Math.random() * (index + 1));
-        [selected[index], selected[target]] = [selected[target], selected[index]];
-    }
-    selected.sort((a, b) => Number(b.has_cardio) - Number(a.has_cardio)
-        || (randomizer.balanceStats ? b.statsScore - a.statsScore : 0));
-    const extraPlayerTeams = selected.length % randomizer.teams;
-    const teams = Array.from({ length: randomizer.teams }, (_, index) => ({
-        capacity: Math.floor(selected.length / randomizer.teams) + (index < extraPlayerTeams ? 1 : 0),
-        players: [],
-        cardioPlayers: 0,
-        statsScore: 0,
-    }));
-    for (const player of selected) {
-        let candidates = teams.filter((team) => team.players.length < team.capacity);
-        if (player.has_cardio) {
-            const minimumCardio = Math.min(...candidates.map((team) => team.cardioPlayers));
-            candidates = candidates.filter((team) => team.cardioPlayers === minimumCardio);
-        }
-        if (randomizer.balanceStats) {
-            const minimumScore = Math.min(...candidates.map((team) => team.statsScore));
-            candidates = candidates.filter((team) => team.statsScore === minimumScore);
-        }
-        const minimumSize = Math.min(...candidates.map((team) => team.players.length));
-        candidates = candidates.filter((team) => team.players.length === minimumSize);
-        const team = candidates[Math.floor(Math.random() * candidates.length)];
-        team.players.push(player);
-        team.statsScore += player.statsScore;
-        if (player.has_cardio) team.cardioPlayers += 1;
-    }
-    const result = teams.map((team) => team.players);
-    state.randomizerResult = result;
+    state.randomizerResult = generateBalancedTeams(selected, randomizer.teams, {
+        balanceStats: randomizer.balanceStats,
+    });
     navigate('/mister/equipos/resultado');
 }
 
@@ -1653,7 +1843,7 @@ function renderRandomizerResult() {
     return `<section class="page stack stack--wide">
         ${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}
         <div class="randomizer-summary"><div class="summary-chip"><strong>${teams.length}</strong>equipos</div><div class="summary-chip"><strong>${teams.flat().length}</strong>jugadores</div><div class="summary-chip"><strong>${Math.floor(teams.flat().length / teams.length)}–${Math.ceil(teams.flat().length / teams.length)}</strong>por equipo</div></div>
-        <div class="team-grid">${teams.map((team, index) => `<section class="card generated-team"><h2 class="generated-team__title">Equipo ${names[index]} ${state.randomizer?.balanceStats ? `<span class="status-badge">${formatDecimal(team.reduce((sum, player) => sum + (player.statsScore || 0), 0))} pts</span>` : ''}</h2>${team.map((player) => `<div class="player-line">${avatar({ id: player.id, name: player.name })}<span class="player-line__name">${esc(player.name)}</span>${player.has_cardio ? '⚡' : ''}</div>`).join('')}</section>`).join('')}</div>
+        <div class="team-grid">${teams.map((team, index) => `<section class="card generated-team"><h2 class="generated-team__title">Equipo ${names[index]} ${state.randomizer?.balanceStats ? `<span class="status-badge">${formatSignedDecimal(team.reduce((sum, player) => sum + (player.statsScore || 0), 0))} puntos</span>` : ''}</h2>${team.map((player) => `<div class="player-line">${avatar({ id: player.id, name: player.name })}<span class="player-line__name">${esc(player.name)}</span>${player.has_cardio ? '⚡' : ''}</div>`).join('')}</section>`).join('')}</div>
         <div class="card card__body"><h2 class="section-heading">¿Te encaja el reparto?</h2><p class="muted">${teams.length === 2 ? 'Puedes repetir el sorteo o guardar los equipos A y B.' : 'Puedes repetir el sorteo. Para crear un acta necesitas exactamente 2 equipos.'}</p></div>
         <div class="inline inline--end"><button class="btn btn--outline" data-action="randomizer-redraw">${icon('shuffle')} Volver a sortear</button>${teams.length === 2 ? `<button class="btn btn--outline" data-action="randomizer-save">Guardar para el próximo partido</button><button class="btn" data-action="randomizer-create-record">${icon('plus')} Crear acta con estos equipos</button>` : ''}</div>
     </section>`;
@@ -1816,6 +2006,10 @@ root.addEventListener('click', async (event) => {
             state.session = null;
             state.access = null;
             state.snapshot = { players: [], matches: [] };
+            state.seasons = [];
+            state.selectedSeasonId = null;
+            state.mvpVotes = [];
+            state.mvpVotingMatchId = null;
             state.authMode = 'login';
             state.menuOpen = false;
             history.replaceState({}, '', location.pathname);
@@ -1857,13 +2051,38 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'ranking-info') {
         const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
         state.dialog = {
-            title: `Cómo se calcula ${definition.label}`,
+            variant: 'ranking-info',
+            title: definition.label,
+            symbol: RANKING_SYMBOLS[state.rankingCategory] || '⚽',
             message: definition.description,
-            confirmLabel: 'Cerrar',
+            confirmLabel: 'Entendido',
             singleAction: true,
             onConfirm: () => {},
         };
         render();
+        queueMicrotask(() => document.querySelector('.ranking-dialog__close')?.focus());
+    } else if (action === 'toggle-mvp-vote') {
+        state.mvpVotingMatchId = state.mvpVotingMatchId === target.dataset.matchId
+            ? null
+            : target.dataset.matchId;
+        render();
+    } else if (action === 'cast-mvp-vote') {
+        state.mvpBusy = true;
+        render();
+        try {
+            await rpc('cast_match_mvp_vote', {
+                p_match_id: target.dataset.matchId,
+                p_nominee_player_id: target.dataset.playerId,
+            });
+            await refreshMvpVotes();
+            state.mvpVotingMatchId = null;
+            showSnackbar('Voto MVP guardado');
+        } catch (error) {
+            showSnackbar(errorMessage(error, 'No se ha podido guardar tu voto MVP.'), true);
+        } finally {
+            state.mvpBusy = false;
+            render();
+        }
     } else if (action === 'toggle-metric-explanations') {
         state.profileExplanations = !state.profileExplanations;
         render();
@@ -2047,7 +2266,9 @@ root.addEventListener('click', async (event) => {
 
 root.addEventListener('change', async (event) => {
     const target = event.target;
-    if (target.matches('[data-match-field="team"]')) {
+    if (target.id === 'history-season-filter') {
+        await selectSeason(Number(target.value));
+    } else if (target.matches('[data-match-field="team"]')) {
         const playerId = target.dataset.player;
         const team = target.dataset.team;
         const teams = state.matchDraft.assignments[playerId] || [];
@@ -2098,80 +2319,185 @@ root.addEventListener('input', (event) => {
     if (submit) submit.disabled = form.dataset.mode === 'forgot' ? !email : !email || !password;
 });
 
-root.addEventListener('dragstart', (event) => {
-    const card = event.target.closest('[data-stat-key]');
-    if (!card) return;
-    state.draggedStat = card.dataset.statKey;
-    card.classList.add('stat-card--dragging');
-    event.dataTransfer.effectAllowed = 'move';
-    event.dataTransfer.setData('text/plain', state.draggedStat);
-});
+const STAT_LONG_PRESS_DELAY = 420;
+const STAT_PRESS_MOVE_TOLERANCE = 9;
 
-root.addEventListener('dragover', (event) => {
-    if (state.draggedStat && event.target.closest('[data-stat-key]')) {
-        event.preventDefault();
-        event.dataTransfer.dropEffect = 'move';
+function announceStatReorder(message) {
+    const status = document.querySelector('#stat-reorder-status');
+    if (status) status.textContent = message;
+}
+
+function clearStatReorderClasses(reorder = state.statReorder) {
+    reorder?.flipAnimations?.forEach((animation) => animation.cancel());
+    reorder?.grid?.classList.remove('stats-grid--reordering');
+    reorder?.card?.classList.remove('stat-card--dragging');
+    reorder?.card?.style.removeProperty('--drag-x');
+    reorder?.card?.style.removeProperty('--drag-y');
+}
+
+function cancelPendingStatReorder() {
+    if (!state.statReorder || state.statReorder.active) return;
+    window.clearTimeout(state.statReorder.timer);
+    state.statReorder = null;
+}
+
+function activateStatReorder(reorder) {
+    if (state.statReorder !== reorder) return;
+    reorder.active = true;
+    reorder.originalVisibleOrder = [...reorder.grid.querySelectorAll('[data-stat-key]')]
+        .map((card) => card.dataset.statKey);
+    reorder.visibleOrder = [...reorder.originalVisibleOrder];
+    reorder.slotRects = [...reorder.grid.querySelectorAll('[data-stat-key]')]
+        .map((card) => card.getBoundingClientRect());
+    state.suppressStatClick = true;
+    reorder.card.classList.add('stat-card--dragging');
+    reorder.grid.classList.add('stats-grid--reordering');
+    navigator.vibrate?.(45);
+    announceStatReorder('Modo reordenación activado. Arrastra la tarjeta y suelta para colocarla.');
+}
+
+function previewStatReorder(reorder, desiredIndex) {
+    reorder.flipAnimations.forEach((animation) => animation.cancel());
+    reorder.flipAnimations = [];
+    const cards = [...reorder.grid.querySelectorAll('[data-stat-key]')];
+    const currentIndex = cards.indexOf(reorder.card);
+    if (currentIndex === desiredIndex || desiredIndex < 0 || desiredIndex >= cards.length) return;
+
+    const beforeRects = new Map(cards.map((card) => [card, card.getBoundingClientRect()]));
+    const reference = cards[desiredIndex];
+    if (desiredIndex > currentIndex) reference.after(reorder.card);
+    else reference.before(reorder.card);
+
+    const draggedBefore = beforeRects.get(reorder.card);
+    const draggedAfter = reorder.card.getBoundingClientRect();
+    reorder.offsetX += draggedBefore.left - draggedAfter.left;
+    reorder.offsetY += draggedBefore.top - draggedAfter.top;
+    reorder.card.style.setProperty('--drag-x', `${reorder.dragX + reorder.offsetX}px`);
+    reorder.card.style.setProperty('--drag-y', `${reorder.dragY + reorder.offsetY}px`);
+
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!reduceMotion) {
+        [...reorder.grid.querySelectorAll('[data-stat-key]')].forEach((card) => {
+            if (card === reorder.card) return;
+            const before = beforeRects.get(card);
+            const after = card.getBoundingClientRect();
+            const x = before.left - after.left;
+            const y = before.top - after.top;
+            if (!x && !y) return;
+            const animation = card.animate?.(
+                [
+                    { transform: `translate3d(${x}px, ${y}px, 0)` },
+                    { transform: 'translate3d(0, 0, 0)' },
+                ],
+                { duration: 180, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+            );
+            if (animation) reorder.flipAnimations.push(animation);
+        });
     }
-});
 
-root.addEventListener('drop', (event) => {
-    const target = event.target.closest('[data-stat-key]');
-    if (!target || !state.draggedStat || target.dataset.statKey === state.draggedStat) return;
-    event.preventDefault();
-    const order = [...state.homeOrder];
-    const from = order.indexOf(state.draggedStat);
-    const to = order.indexOf(target.dataset.statKey);
-    order.splice(to, 0, order.splice(from, 1)[0]);
-    state.homeOrder = order;
-    localStorage.setItem('hattitriki-home-order', JSON.stringify(order));
-    state.draggedStat = '';
-    render();
-});
+    reorder.visibleOrder = [...reorder.grid.querySelectorAll('[data-stat-key]')]
+        .map((card) => card.dataset.statKey);
+}
 
-root.addEventListener('dragend', () => {
-    state.draggedStat = '';
-    document.querySelectorAll('.stat-card--dragging').forEach((card) => card.classList.remove('stat-card--dragging'));
-});
+function finishStatReorder(cancelled = false) {
+    const reorder = state.statReorder;
+    if (!reorder) return;
+    window.clearTimeout(reorder.timer);
+    clearStatReorderClasses(reorder);
+    state.statReorder = null;
+
+    if (!reorder.active) return;
+
+    const orderChanged = reorder.visibleOrder.some((key, index) => key !== reorder.originalVisibleOrder[index]);
+    if (cancelled && orderChanged) {
+        render();
+        queueMicrotask(() => announceStatReorder('Reordenación cancelada.'));
+    } else if (orderChanged) {
+        let visibleIndex = 0;
+        const visibleKeys = new Set(reorder.visibleOrder);
+        const order = state.homeOrder.map((key) => (
+            visibleKeys.has(key) ? reorder.visibleOrder[visibleIndex++] : key
+        ));
+        state.homeOrder = order;
+        localStorage.setItem('hattitriki-home-order', JSON.stringify(order));
+        render();
+        queueMicrotask(() => announceStatReorder('Tarjeta recolocada.'));
+    } else {
+        announceStatReorder(cancelled ? 'Reordenación cancelada.' : 'La tarjeta mantiene su posición.');
+    }
+
+    window.setTimeout(() => {
+        state.suppressStatClick = false;
+    }, 0);
+}
 
 root.addEventListener('pointerdown', (event) => {
     const card = event.target.closest('[data-stat-key]');
-    if (!card || event.pointerType === 'mouse') return;
-    window.clearTimeout(state.touchDrag?.timer);
-    state.touchDrag = {
+    if (!card || event.button !== 0 || state.statReorder) return;
+    const grid = card.closest('.stats-grid');
+    if (!grid) return;
+    const reorder = {
         key: card.dataset.statKey,
-        target: card.dataset.statKey,
         pointerId: event.pointerId,
-        timer: window.setTimeout(() => {
-            state.suppressStatClick = true;
-            card.classList.add('stat-card--dragging');
-            card.setPointerCapture?.(event.pointerId);
-        }, 380),
+        originX: event.clientX,
+        originY: event.clientY,
+        dragX: 0,
+        dragY: 0,
+        offsetX: 0,
+        offsetY: 0,
+        flipAnimations: [],
+        active: false,
+        card,
+        grid,
+        timer: 0,
     };
+    card.setPointerCapture?.(event.pointerId);
+    reorder.timer = window.setTimeout(() => activateStatReorder(reorder), STAT_LONG_PRESS_DELAY);
+    state.statReorder = reorder;
 });
 
 root.addEventListener('pointermove', (event) => {
-    if (!state.touchDrag || !state.suppressStatClick) return;
-    event.preventDefault();
-    const card = document.elementFromPoint(event.clientX, event.clientY)?.closest?.('[data-stat-key]');
-    if (card) state.touchDrag.target = card.dataset.statKey;
-});
+    const reorder = state.statReorder;
+    if (!reorder || reorder.pointerId !== event.pointerId) return;
+    const deltaX = event.clientX - reorder.originX;
+    const deltaY = event.clientY - reorder.originY;
 
-root.addEventListener('pointerup', () => {
-    if (!state.touchDrag) return;
-    window.clearTimeout(state.touchDrag.timer);
-    const { key, target } = state.touchDrag;
-    state.touchDrag = null;
-    if (!state.suppressStatClick || key === target) {
-        document.querySelectorAll('.stat-card--dragging').forEach((card) => card.classList.remove('stat-card--dragging'));
+    if (!reorder.active) {
+        if (Math.hypot(deltaX, deltaY) > STAT_PRESS_MOVE_TOLERANCE) cancelPendingStatReorder();
         return;
     }
-    const order = [...state.homeOrder];
-    const from = order.indexOf(key);
-    const to = order.indexOf(target);
-    order.splice(to, 0, order.splice(from, 1)[0]);
-    state.homeOrder = order;
-    localStorage.setItem('hattitriki-home-order', JSON.stringify(order));
-    render();
+
+    event.preventDefault();
+    reorder.dragX = deltaX;
+    reorder.dragY = deltaY;
+    reorder.card.style.setProperty('--drag-x', `${deltaX + reorder.offsetX}px`);
+    reorder.card.style.setProperty('--drag-y', `${deltaY + reorder.offsetY}px`);
+
+    const desiredIndex = reorder.slotRects.reduce((closestIndex, rect, index) => {
+        const closestRect = reorder.slotRects[closestIndex];
+        const distance = Math.hypot(
+            event.clientX - (rect.left + rect.width / 2),
+            event.clientY - (rect.top + rect.height / 2),
+        );
+        const closestDistance = Math.hypot(
+            event.clientX - (closestRect.left + closestRect.width / 2),
+            event.clientY - (closestRect.top + closestRect.height / 2),
+        );
+        return distance < closestDistance ? index : closestIndex;
+    }, 0);
+    previewStatReorder(reorder, desiredIndex);
+});
+
+root.addEventListener('pointerup', (event) => {
+    if (state.statReorder?.pointerId === event.pointerId) finishStatReorder();
+});
+
+root.addEventListener('pointercancel', (event) => {
+    if (state.statReorder?.pointerId === event.pointerId) finishStatReorder(true);
+});
+
+root.addEventListener('lostpointercapture', (event) => {
+    if (state.statReorder?.pointerId === event.pointerId) finishStatReorder(true);
 });
 
 async function uploadAvatar(file) {
