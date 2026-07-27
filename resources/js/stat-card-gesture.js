@@ -9,3 +9,7 @@ export function captureStatCardPointer(card, pointerId) {
 export function movedBeyondPressTolerance(originX, originY, clientX, clientY, tolerance) {
     return Math.hypot(clientX - originX, clientY - originY) > tolerance;
 }
+
+export function shouldBlockStatCardScroll(reorder) {
+    return Boolean(reorder?.active);
+}

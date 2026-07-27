@@ -10,7 +10,11 @@ import {
 } from './football';
 import { formatFlooredTotal } from './formatters';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
-import { captureStatCardPointer, movedBeyondPressTolerance } from './stat-card-gesture';
+import {
+    captureStatCardPointer,
+    movedBeyondPressTolerance,
+    shouldBlockStatCardScroll,
+} from './stat-card-gesture';
 
 const root = document.querySelector('#app');
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
@@ -2575,6 +2579,13 @@ root.addEventListener('pointerdown', (event) => {
 root.addEventListener('contextmenu', (event) => {
     if (event.target.closest('[data-stat-key]')) event.preventDefault();
 });
+
+root.addEventListener('touchmove', (event) => {
+    // A normal touch must remain available for page scrolling. Once the long
+    // press has activated reorder mode, prevent the same gesture from moving
+    // the page so pointermove can place the card instead.
+    if (shouldBlockStatCardScroll(state.statReorder)) event.preventDefault();
+}, { passive: false });
 
 root.addEventListener('pointermove', (event) => {
     const reorder = state.statReorder;

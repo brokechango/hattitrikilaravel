@@ -1102,9 +1102,14 @@ noscript {
     height: 148px;
     padding: 0;
     cursor: pointer;
-    touch-action: none;
+    touch-action: pan-y pinch-zoom;
     user-select: none;
     -webkit-touch-callout: none;
+}
+
+.stats-grid--reordering,
+.card--clickable.stat-card--dragging {
+    touch-action: none;
 }
 
 .card--clickable.stat-card--dragging {

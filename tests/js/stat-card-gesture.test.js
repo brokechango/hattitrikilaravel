@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
     captureStatCardPointer,
     movedBeyondPressTolerance,
+    shouldBlockStatCardScroll,
 } from '../../resources/js/stat-card-gesture';
 
 describe('stat card gestures', () => {
@@ -21,5 +22,11 @@ describe('stat card gestures', () => {
     it('keeps small pointer movement eligible for a click', () => {
         expect(movedBeyondPressTolerance(100, 100, 106, 106, 9)).toBe(false);
         expect(movedBeyondPressTolerance(100, 100, 110, 100, 9)).toBe(true);
+    });
+
+    it('allows page scrolling until the long press activates reorder mode', () => {
+        expect(shouldBlockStatCardScroll(null)).toBe(false);
+        expect(shouldBlockStatCardScroll({ active: false })).toBe(false);
+        expect(shouldBlockStatCardScroll({ active: true })).toBe(true);
     });
 });
