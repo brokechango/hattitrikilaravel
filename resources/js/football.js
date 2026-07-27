@@ -32,9 +32,219 @@ export function matchWinner(match) {
     return null;
 }
 
+export function aggregateGoals(goals, participants = []) {
+    return [...(goals || [])
+        .filter((goal) => Number(goal.count) > 0)
+        .reduce((entries, goal) => {
+            const team = goal.team
+                || participants.find(
+                    (participant) => participant.player_id === goal.player_id,
+                )?.team
+                || 'A';
+            const ownGoal = Boolean(goal.is_own_goal);
+            const key = `${goal.player_id}:${team}:${ownGoal}`;
+            const current = entries.get(key);
+
+            if (current) {
+                current.count += Number(goal.count);
+            } else {
+                const { goalkeeper_id: omittedGoalkeeperId, ...scorerGoal } = goal;
+                entries.set(key, {
+                    ...scorerGoal,
+                    team,
+                    count: Number(goal.count),
+                });
+            }
+
+            return entries;
+        }, new Map())
+        .values()];
+}
+
+export function countMvpVotes(voteRows) {
+    return (voteRows || []).reduce((counts, row) => {
+        const playerId = row.nominee_player_id;
+
+        if (playerId) {
+            counts[playerId] = (counts[playerId] || 0) + Number(row.vote_count || 0);
+        }
+
+        return counts;
+    }, {});
+}
+
+const INITIAL_ELO_RATING = 1000;
+const ELO_K_FACTOR = 24;
+const GOAL_ELO_IMPACT = 2;
+const OWN_GOAL_ELO_IMPACT = 3;
+const FORM_MATCH_WEIGHTS = [1, 0.8, 0.6, 0.4, 0.2];
+
+function teamAverageRating(playerIds, ratings) {
+    if (!playerIds.size) {
+        return INITIAL_ELO_RATING;
+    }
+
+    return [...playerIds].reduce(
+        (total, playerId) => total + (ratings.get(playerId) ?? INITIAL_ELO_RATING),
+        0,
+    ) / playerIds.size;
+}
+
+function expectedEloScore(rating, opponentRating) {
+    return 1 / (1 + (10 ** ((opponentRating - rating) / 400)));
+}
+
+function matchEloScores(match) {
+    if (match.teamAScore > match.teamBScore) {
+        return { A: 1, B: 0 };
+    }
+
+    if (match.teamBScore > match.teamAScore) {
+        return { A: 0, B: 1 };
+    }
+
+    if (
+        match.teamAPenaltyScore != null
+        && match.teamBPenaltyScore != null
+        && match.teamAPenaltyScore !== match.teamBPenaltyScore
+    ) {
+        return match.teamAPenaltyScore > match.teamBPenaltyScore
+            ? { A: 0.75, B: 0.25 }
+            : { A: 0.25, B: 0.75 };
+    }
+
+    return { A: 0.5, B: 0.5 };
+}
+
+function calculatePlayerFormMetrics(snapshot) {
+    const matches = snapshot.matches || [];
+    const players = snapshot.players || [];
+    const ratings = new Map(players.map((player) => [player.id, INITIAL_ELO_RATING]));
+    const impactsByMatch = new Map();
+
+    for (const match of [...matches].reverse()) {
+        const teamPlayers = { A: new Set(), B: new Set() };
+
+        for (const participant of match.participants || []) {
+            if (teamPlayers[participant.team]) {
+                teamPlayers[participant.team].add(participant.player_id);
+            }
+
+            if (!ratings.has(participant.player_id)) {
+                ratings.set(participant.player_id, INITIAL_ELO_RATING);
+            }
+        }
+
+        const teamRatings = {
+            A: teamAverageRating(teamPlayers.A, ratings),
+            B: teamAverageRating(teamPlayers.B, ratings),
+        };
+        const expectedScores = {
+            A: expectedEloScore(teamRatings.A, teamRatings.B),
+            B: expectedEloScore(teamRatings.B, teamRatings.A),
+        };
+        const actualScores = matchEloScores(match);
+        const teamDeltas = {
+            A: ELO_K_FACTOR * (actualScores.A - expectedScores.A),
+            B: ELO_K_FACTOR * (actualScores.B - expectedScores.B),
+        };
+        const matchImpacts = new Map();
+        const participantIds = new Set([
+            ...teamPlayers.A,
+            ...teamPlayers.B,
+        ]);
+
+        for (const playerId of participantIds) {
+            const playerParticipations = (match.participants || [])
+                .filter((participant) => participant.player_id === playerId);
+            const playerTeams = new Set(
+                playerParticipations.map((participant) => participant.team),
+            );
+            const playerTeam = playerTeams.size === 1
+                ? [...playerTeams][0]
+                : null;
+            const goals = (match.goals || [])
+                .filter((goal) => goal.player_id === playerId && !goal.is_own_goal)
+                .reduce((total, goal) => total + Number(goal.count || 0), 0);
+            const ownGoals = (match.goals || [])
+                .filter((goal) => goal.player_id === playerId && goal.is_own_goal)
+                .reduce((total, goal) => total + Number(goal.count || 0), 0);
+            const teamImpact = playerTeam ? teamDeltas[playerTeam] : 0;
+            const impact = teamImpact + goals * GOAL_ELO_IMPACT
+                - ownGoals * OWN_GOAL_ELO_IMPACT;
+            const winner = matchWinner(match);
+            const result = !playerTeam || !winner
+                ? 'draw'
+                : playerTeam === winner ? 'win' : 'loss';
+
+            ratings.set(
+                playerId,
+                (ratings.get(playerId) ?? INITIAL_ELO_RATING) + impact,
+            );
+            matchImpacts.set(playerId, {
+                goals,
+                impact,
+                ownGoals,
+                result,
+            });
+        }
+
+        impactsByMatch.set(match, matchImpacts);
+    }
+
+    const recentMatches = matches.slice(0, FORM_MATCH_WEIGHTS.length);
+    const requiredMatches = Math.min(2, recentMatches.length);
+
+    return new Map(players.map((player) => {
+        let formScore = 0;
+        let formMatches = 0;
+        let formGoals = 0;
+        let formOwnGoals = 0;
+        let formWins = 0;
+        let formDraws = 0;
+        let formLosses = 0;
+        let latestFormImpact = 0;
+
+        recentMatches.forEach((match, index) => {
+            const performance = impactsByMatch.get(match)?.get(player.id);
+
+            if (!performance) {
+                return;
+            }
+
+            if (index === 0) {
+                latestFormImpact = performance.impact;
+            }
+
+            formScore += performance.impact * FORM_MATCH_WEIGHTS[index];
+            formMatches += 1;
+            formGoals += performance.goals;
+            formOwnGoals += performance.ownGoals;
+
+            if (performance.result === 'win') formWins += 1;
+            else if (performance.result === 'draw') formDraws += 1;
+            else formLosses += 1;
+        });
+
+        return [player.id, {
+            eloRating: ratings.get(player.id) ?? INITIAL_ELO_RATING,
+            formDraws,
+            formGoals,
+            formLosses,
+            formMatches,
+            formOwnGoals,
+            formScore: Math.abs(formScore) < Number.EPSILON ? 0 : formScore,
+            formWins,
+            isFormEligible: formMatches > 0 && formMatches >= requiredMatches,
+            latestFormImpact,
+        }];
+    }));
+}
+
 export function calculatePlayerStats(snapshot) {
     const matches = snapshot.matches;
     const goalkeeperShare = {};
+    const formMetrics = calculatePlayerFormMetrics(snapshot);
 
     for (const match of matches) {
         for (const team of ['A', 'B']) {
@@ -118,6 +328,88 @@ export function calculatePlayerStats(snapshot) {
             assignedGoalsAgainst: goalsAgainst,
             totalPerformance: played.length + goals + wins + goalkeeperAdjustment,
             recentForm,
+            ...formMetrics.get(player.id),
         };
     });
+}
+
+export function generateBalancedTeams(players, teamCount, options = {}) {
+    if (
+        !Array.isArray(players)
+        || !players.length
+        || !Number.isInteger(teamCount)
+        || teamCount < 2
+        || teamCount > players.length
+    ) {
+        return [];
+    }
+
+    const balanceStats = Boolean(options.balanceStats);
+    const random = typeof options.random === 'function' ? options.random : Math.random;
+    const selected = players.map((player) => ({
+        ...player,
+        statsScore: Number(player.statsScore) || 0,
+    }));
+
+    for (let index = selected.length - 1; index > 0; index -= 1) {
+        const target = Math.floor(random() * (index + 1));
+        [selected[index], selected[target]] = [selected[target], selected[index]];
+    }
+
+    const minimumStatsScore = Math.min(
+        0,
+        ...selected.map((player) => player.statsScore),
+    );
+
+    for (const player of selected) {
+        player.balanceScore = player.statsScore - minimumStatsScore;
+    }
+
+    selected.sort((a, b) => Number(b.has_cardio) - Number(a.has_cardio)
+        || (balanceStats ? b.balanceScore - a.balanceScore : 0));
+
+    const extraPlayerTeams = selected.length % teamCount;
+    const teams = Array.from({ length: teamCount }, (_, index) => ({
+        balanceScore: 0,
+        capacity: Math.floor(selected.length / teamCount)
+            + (index < extraPlayerTeams ? 1 : 0),
+        cardioPlayers: 0,
+        players: [],
+    }));
+
+    for (const player of selected) {
+        let candidates = teams.filter((team) => team.players.length < team.capacity);
+
+        if (player.has_cardio) {
+            const minimumCardio = Math.min(
+                ...candidates.map((team) => team.cardioPlayers),
+            );
+            candidates = candidates
+                .filter((team) => team.cardioPlayers === minimumCardio);
+        }
+
+        if (balanceStats) {
+            const minimumScore = Math.min(
+                ...candidates.map((team) => team.balanceScore),
+            );
+            candidates = candidates
+                .filter((team) => team.balanceScore === minimumScore);
+        }
+
+        const minimumSize = Math.min(
+            ...candidates.map((team) => team.players.length),
+        );
+        candidates = candidates
+            .filter((team) => team.players.length === minimumSize);
+
+        const team = candidates[Math.floor(random() * candidates.length)];
+        team.players.push(player);
+        team.balanceScore += player.balanceScore;
+
+        if (player.has_cardio) {
+            team.cardioPlayers += 1;
+        }
+    }
+
+    return teams.map((team) => team.players);
 }
