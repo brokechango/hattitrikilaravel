@@ -18,6 +18,3 @@
 
 /config.js
   Cache-Control: no-store
-
-/build/*
-  Cache-Control: public, max-age=300, must-revalidate

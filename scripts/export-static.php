@@ -124,6 +124,29 @@ if ($html === null) {
     throw new RuntimeException('Unable to normalize Vite asset URLs.');
 }
 
+$manifestPath = $basePath.DIRECTORY_SEPARATOR.'public'.DIRECTORY_SEPARATOR.'build'.DIRECTORY_SEPARATOR.'manifest.json';
+$manifestHash = is_file($manifestPath) ? hash_file('sha256', $manifestPath) : false;
+
+if (! is_string($manifestHash)) {
+    throw new RuntimeException('Unable to calculate the Vite manifest version.');
+}
+
+$assetVersion = substr($manifestHash, 0, 12);
+$html = preg_replace_callback(
+    '#\b(href|src)="(/build/assets/[^"?]+)"#',
+    static fn (array $matches): string => sprintf(
+        '%s="%s?v=%s"',
+        $matches[1],
+        $matches[2],
+        $assetVersion,
+    ),
+    $html,
+);
+
+if ($html === null) {
+    throw new RuntimeException('Unable to version Vite asset URLs.');
+}
+
 if (str_contains($html, '@vite') || ! str_contains($html, '/build/assets/')) {
     throw new RuntimeException('The Blade view did not render production Vite assets.');
 }
