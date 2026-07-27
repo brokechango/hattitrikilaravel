@@ -14,9 +14,13 @@ Auditoría realizada el 27 de julio de 2026 sobre el proyecto Supabase
 - Supabase está activo y contiene el esquema funcional hasta gestión de
   jugadores, perfiles, avatares, votación de MVP y temporadas.
 - El historial remoto de Supabase está completamente reconciliado y registra
-  las migraciones hasta `20260727210000_league_seasons`.
+  las migraciones hasta
+  `20260727210037_disable_existing_match_mvp_voting`.
 - `public.goals.goalkeeper_player_id` ya acepta valores nulos.
 - La tabla y las funciones de votación de MVP están aplicadas y registradas.
+- Los tres partidos anteriores a la activación del MVP están excluidos; sus
+  siete votos históricos fueron eliminados. Los partidos creados después de
+  ese corte tienen la votación habilitada por defecto.
 
 ## Auditoría de los incidentes web
 

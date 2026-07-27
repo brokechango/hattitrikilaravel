@@ -9,6 +9,10 @@ import {
     toHex,
 } from './football';
 import { formatFlooredTotal } from './formatters';
+import {
+    collectDisabledMvpMatchIds,
+    resolveMvpVotingAccess,
+} from './mvp-voting';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
 import {
     captureStatCardPointer,
@@ -62,6 +66,7 @@ const state = {
     avatars: {},
     currentPlayerId: null,
     mvpVotes: [],
+    mvpVotingDisabledMatchIds: new Set(),
     mvpVotingMatchId: null,
     mvpBusy: false,
     profileDetails: {},
@@ -348,19 +353,29 @@ async function loadApplicationData(force = false) {
     state.loadError = '';
     if (force) render();
     try {
-        const [players, seasons, matches, currentPlayerRows, avatarRows, mvpVotes] = await Promise.all([
+        const [
+            players,
+            seasons,
+            matches,
+            currentPlayerRows,
+            avatarRows,
+            mvpVotes,
+            mvpVotingDisabledMatches,
+        ] = await Promise.all([
             rpc('get_public_league_players'),
             rpc('get_league_seasons'),
             rpc('get_public_friendly_matches', { p_season_id: requestedSeasonId }),
             rpc('get_current_league_player_id').catch(() => []),
             rpc('get_league_player_avatars').catch(() => []),
             rpc('get_league_match_mvp_votes').catch(() => []),
+            rpc('get_mvp_voting_disabled_matches').catch(() => []),
         ]);
         state.seasons = normalizeSeasons(seasons);
         state.selectedSeasonId = resolveSeasonId(state.seasons, requestedSeasonId);
         state.snapshot = normalizeSnapshot(players, matches);
         state.currentPlayerId = (Array.isArray(currentPlayerRows) ? currentPlayerRows[0] : currentPlayerRows)?.player_id ?? null;
         state.mvpVotes = mvpVotes || [];
+        state.mvpVotingDisabledMatchIds = collectDisabledMvpMatchIds(mvpVotingDisabledMatches);
         state.avatars = await loadSignedAvatars(avatarRows);
         state.profileDetails = {};
         state.loading = false;
@@ -528,8 +543,8 @@ const RANKINGS = {
     },
     'people-favourite': {
         label: 'El preferido del pueblo',
-        scopeLabel: 'VOTACIONES MVP · TODOS LOS PARTIDOS',
-        description: 'Suma los votos MVP recibidos después de cada partido. Solo pueden votar los jugadores que participaron en esa acta y cada participante dispone de un voto por partido.',
+        scopeLabel: 'VOTACIONES MVP · PARTIDOS HABILITADOS',
+        description: 'Suma los votos MVP recibidos en los partidos con votación habilitada. Los tres primeros partidos quedan fuera; a partir del siguiente, cada participante dispone de un voto por partido.',
         filter: (item) => item.mvpVotes > 0,
         sort: (a, b) => b.mvpVotes - a.mvpVotes
             || b.matchesPlayed - a.matchesPlayed
@@ -1158,8 +1173,11 @@ function renderMatchMvp(match) {
         matchVotes.map((vote) => [vote.nominee_player_id, Number(vote.vote_count)]),
     );
     const currentVote = matchVotes.find((vote) => vote.is_current_vote);
-    const eligible = Boolean(
-        state.currentPlayerId && participantIds.includes(state.currentPlayerId),
+    const { votingEnabled, eligible } = resolveMvpVotingAccess(
+        match.id,
+        state.currentPlayerId,
+        participantIds,
+        state.mvpVotingDisabledMatchIds,
     );
     const panelOpen = state.mvpVotingMatchId === match.id;
 
@@ -1169,14 +1187,16 @@ function renderMatchMvp(match) {
             <div class="match-mvp__copy">
                 <span>VOTACIÓN DEL PARTIDO</span>
                 <h2>¿Quién fue el MVP?</h2>
-                <p>${eligible
-                    ? 'Elige al jugador más destacado. Puedes cambiar tu voto cuando quieras.'
-                    : 'Solo los jugadores que participaron en este partido pueden votar.'}</p>
+                <p>${!votingEnabled
+                    ? 'La votación MVP empieza a partir del próximo partido.'
+                    : eligible
+                        ? 'Elige al jugador más destacado. Puedes cambiar tu voto cuando quieras.'
+                        : 'Solo los jugadores que participaron en este partido pueden votar.'}</p>
             </div>
             <div class="match-mvp__action">
                 ${currentVote ? `<span class="match-mvp__current">Tu voto: <strong>${esc(playerName(currentVote.nominee_player_id))}</strong></span>` : ''}
                 <button class="btn match-mvp__button" type="button" data-action="toggle-mvp-vote" data-match-id="${esc(match.id)}" ${eligible && !state.mvpBusy ? '' : 'disabled'}>
-                    ${currentVote ? 'Cambiar mi voto' : 'Votar al MVP'}
+                    ${!votingEnabled ? 'Votación no disponible' : currentVote ? 'Cambiar mi voto' : 'Votar al MVP'}
                 </button>
             </div>
         </div>
@@ -2120,6 +2140,7 @@ root.addEventListener('click', async (event) => {
             state.seasons = [];
             state.selectedSeasonId = null;
             state.mvpVotes = [];
+            state.mvpVotingDisabledMatchIds = new Set();
             state.mvpVotingMatchId = null;
             state.authMode = 'login';
             state.menuOpen = false;
@@ -2173,11 +2194,13 @@ root.addEventListener('click', async (event) => {
         render();
         queueMicrotask(() => document.querySelector('.ranking-dialog__close')?.focus());
     } else if (action === 'toggle-mvp-vote') {
+        if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
         state.mvpVotingMatchId = state.mvpVotingMatchId === target.dataset.matchId
             ? null
             : target.dataset.matchId;
         render();
     } else if (action === 'cast-mvp-vote') {
+        if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
         state.mvpBusy = true;
         render();
         try {
