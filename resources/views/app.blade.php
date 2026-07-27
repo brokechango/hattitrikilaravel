@@ -22,7 +22,7 @@
     <a class="skip-link" href="#app">Saltar al contenido</a>
     <noscript>Hattitriki necesita JavaScript para funcionar.</noscript>
     <div id="app" aria-live="polite">
-        <main class="auth-stage" aria-busy="true" aria-label="Acceso a Hattitriki">
+        <main class="auth-stage auth-stage--loading" aria-busy="true" aria-label="Acceso a Hattitriki">
             <section class="auth-card auth-card--loading" data-boot-loader>
                 <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
                 <h1>HATTITRIKI FC</h1>

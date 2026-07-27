@@ -78,6 +78,7 @@ const state = {
     suppressStatClick: false,
     profileExplanations: false,
     historyFilter: { mode: 'all', month: '', year: '', from: '', to: '' },
+    historyControlsVisible: false,
     historyFiltersVisible: false,
     managePlayersFilter: { search: '', status: 'all', order: 'az' },
     manageMatchesFilter: { search: '', type: 'all', order: 'newest' },
@@ -739,7 +740,7 @@ function renderAuth() {
 }
 
 function renderAccessCheck() {
-    root.innerHTML = `<main class="auth-stage" aria-busy="true" aria-label="Comprobando el acceso">
+    root.innerHTML = `<main class="auth-stage auth-stage--loading" aria-busy="true" aria-label="Comprobando el acceso">
         <section class="auth-card auth-card--loading">
             <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
             <h1>HATTITRIKI FC</h1>
@@ -844,7 +845,12 @@ function renderHistory() {
     return `<section class="page history-page">
         ${pageHeader('Resultados', `Partidos de ${selectedSeason?.name || 'la temporada actual'}.`)}
         <section class="history-sticky">
-            <section class="card history-filter-shell${hasActiveFilter ? ' history-filter-shell--active' : ''}" aria-label="Filtros de resultados">
+            <button class="btn btn--outline history-controls-toggle${hasActiveFilter ? ' history-controls-toggle--active' : ''}" type="button" data-action="history-toggle-controls" aria-expanded="${state.historyControlsVisible}" aria-controls="history-controls">
+                ${icon('matches')}
+                <span>${state.historyControlsVisible ? 'Ocultar filtros' : 'Mostrar filtros'}</span>
+                ${hasActiveFilter ? '<small>Filtro activo</small>' : ''}
+            </button>
+            ${state.historyControlsVisible ? `<section class="card history-filter-shell${hasActiveFilter ? ' history-filter-shell--active' : ''}" id="history-controls" aria-label="Filtros de resultados">
                 <label class="history-season-filter">
                     <span class="history-filter-icon history-filter-icon--season" aria-hidden="true">${String(selectedSeason?.number || 1).padStart(2, '0')}</span>
                     <span class="history-filter-copy">
@@ -892,7 +898,7 @@ function renderHistory() {
                     </div>
                 </div>` : ''}
                 </form>
-            </section>
+            </section>` : ''}
             <p class="history-count">PARTIDOS FINALIZADOS · ${matches.length}</p>
         </section>
         <section>
@@ -2010,6 +2016,7 @@ root.addEventListener('submit', async (event) => {
         state.historyFilter.year = String(data.get('year') || state.historyFilter.year || new Date().getFullYear());
         state.historyFilter.from = String(data.get('from') || '');
         state.historyFilter.to = String(data.get('to') || '');
+        state.historyControlsVisible = false;
         state.historyFiltersVisible = false;
         saveHistoryPreferences();
         render();
@@ -2208,8 +2215,13 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'history-toggle-filters') {
         state.historyFiltersVisible = !state.historyFiltersVisible;
         render();
+    } else if (action === 'history-toggle-controls') {
+        state.historyControlsVisible = !state.historyControlsVisible;
+        if (!state.historyControlsVisible) state.historyFiltersVisible = false;
+        render();
     } else if (action === 'history-clear') {
         state.historyFilter = { mode: 'all', month: '', year: '', from: '', to: '' };
+        state.historyControlsVisible = false;
         state.historyFiltersVisible = false;
         saveHistoryPreferences();
         render();

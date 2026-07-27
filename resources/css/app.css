@@ -1268,6 +1268,33 @@ noscript {
     transition: border-color 160ms ease, box-shadow 160ms ease;
 }
 
+.history-controls-toggle {
+    width: fit-content;
+    min-height: 42px;
+    gap: 9px;
+    justify-self: end;
+}
+
+.history-controls-toggle svg {
+    width: 18px;
+    height: 18px;
+}
+
+.history-controls-toggle small {
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: rgb(242 190 62 / 16%);
+    color: var(--gold);
+    font-size: 10px;
+    font-weight: 900;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+}
+
+.history-controls-toggle--active {
+    border-color: rgb(242 190 62 / 72%);
+}
+
 .history-filter-shell--active {
     border-color: rgb(242 190 62 / 46%);
     box-shadow: inset 3px 0 0 rgb(242 190 62 / 78%);
@@ -3189,18 +3216,15 @@ button.step {
 
 @media (max-width: 599px) {
     .dialog-backdrop--ranking-info {
-        align-items: end;
-        padding: 16px 0 0;
+        align-items: center;
+        padding: 16px;
     }
 
     .dialog--ranking-info {
-        width: 100%;
-        max-height: min(88vh, 720px);
-        border-right: 0;
-        border-bottom: 0;
-        border-left: 0;
-        border-radius: 18px 18px 0 0;
-        animation-name: ranking-dialog-mobile-in;
+        width: min(100%, 460px);
+        max-height: calc(100dvh - 32px);
+        border-radius: 18px;
+        animation-name: dialog-in;
     }
 
     .ranking-dialog__header {
@@ -4906,6 +4930,10 @@ body {
     .auth-stage {
         place-items: start center;
         padding: 16px;
+    }
+
+    .auth-stage.auth-stage--loading {
+        place-items: center;
     }
 
     .auth-layout {

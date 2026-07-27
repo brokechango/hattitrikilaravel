@@ -32,6 +32,7 @@ final class HattitrikiWebTest extends TestCase
             ->assertSee('<html lang="es">', false)
             ->assertSee('HATTITRIKI FC')
             ->assertSee('Acceso a Hattitriki')
+            ->assertSee('auth-stage--loading', false)
             ->assertSee('bouncing-ball-loader', false)
             ->assertSee('⚽')
             ->assertSee('/boot-guard.js', false)
