@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 env:
-  PHP_VERSION: "8.3"
+  PHP_VERSION: "8.4"
   NODE_VERSION: "22"
   SUPABASE_CLI_VERSION: "2.110.0"
   WRANGLER_VERSION: "4.112.0"
