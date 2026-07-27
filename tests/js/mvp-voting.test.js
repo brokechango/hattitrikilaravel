@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
     collectDisabledMvpMatchIds,
+    resolveMatchMvpPlayerId,
     resolveMvpVotingAccess,
 } from '../../resources/js/mvp-voting';
 
@@ -45,5 +46,28 @@ describe('MVP voting availability', () => {
             votingEnabled: true,
             eligible: false,
         });
+    });
+});
+
+describe('match MVP badge', () => {
+    it('identifies the unique player with the most votes', () => {
+        expect(resolveMatchMvpPlayerId([
+            { match_id: 'match-4', nominee_player_id: 'player-1', vote_count: 3 },
+            { match_id: 'match-4', nominee_player_id: 'player-2', vote_count: 5 },
+            { match_id: 'match-5', nominee_player_id: 'player-3', vote_count: 8 },
+        ], 'match-4')).toBe('player-2');
+    });
+
+    it('does not assign the badge when the lead is tied', () => {
+        expect(resolveMatchMvpPlayerId([
+            { match_id: 'match-4', nominee_player_id: 'player-1', vote_count: 2 },
+            { match_id: 'match-4', nominee_player_id: 'player-2', vote_count: 2 },
+        ], 'match-4')).toBeNull();
+    });
+
+    it('does not assign the badge before any valid vote exists', () => {
+        expect(resolveMatchMvpPlayerId([
+            { match_id: 'match-4', nominee_player_id: 'player-1', vote_count: 0 },
+        ], 'match-4')).toBeNull();
     });
 });

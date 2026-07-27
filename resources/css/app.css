@@ -5391,9 +5391,35 @@ body {
     gap: 1px;
 }
 
+.player-line__name-row {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+}
+
 .match-detail-page .player-line__name {
     font-size: 13px;
     line-height: 17px;
+}
+
+.player-line__mvp-badge {
+    display: grid;
+    width: 22px;
+    height: 22px;
+    flex: 0 0 22px;
+    place-items: center;
+    border: 1px solid rgb(242 190 62 / 36%);
+    border-radius: 50%;
+    background: rgb(242 190 62 / 10%);
+    color: var(--gold-light);
+}
+
+.player-line__mvp-badge svg {
+    width: 13px;
+    height: 13px;
+    fill: rgb(242 190 62 / 18%);
+    stroke-width: 2;
 }
 
 .player-line__copy small {

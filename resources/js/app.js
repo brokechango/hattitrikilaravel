@@ -11,6 +11,7 @@ import {
 import { formatFlooredTotal } from './formatters';
 import {
     collectDisabledMvpMatchIds,
+    resolveMatchMvpPlayerId,
     resolveMvpVotingAccess,
 } from './mvp-voting';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
@@ -123,6 +124,7 @@ const ICONS = {
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
     camera: '<path d="M14.5 4 16 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.5-3Z"/><circle cx="12" cy="13" r="4"/>',
     football: '<circle cx="12" cy="12" r="9"/><path d="m12 8 3 2-1 4h-4l-1-4ZM6 9 3.5 11M18 9l2.5 2M8 17l-1 3M16 17l1 3"/>',
+    mvp: '<path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-3-5.6 3 1.1-6.2L3 9.6l6.2-.9Z"/>',
 };
 
 function icon(name, label = '') {
@@ -1108,6 +1110,7 @@ function renderMatchDetail(id) {
     const goalEntries = aggregateGoals(match.goals, match.participants);
     const totalRecordedGoals = goalEntries.reduce((total, goal) => total + Number(goal.count), 0);
     const participantCount = new Set(match.participants.map((participant) => participant.player_id)).size;
+    const matchMvpPlayerId = resolveMatchMvpPlayerId(state.mvpVotes, match.id);
     return `<section class="page match-detail-page">
         ${pageHeader(formatDate(match.playedOn), 'Acta del partido y alineaciones.')}
         <div class="match-detail-grid">
@@ -1136,7 +1139,13 @@ function renderMatchDetail(id) {
                             const player = playerById(participant.player_id);
                             return `<a class="player-line card--clickable" href="/rankings/jugador/${toHex(participant.player_id)}">
                                 ${avatar(player)}
-                                <span class="player-line__copy"><strong class="player-line__name">${esc(playerName(participant.player_id))}</strong><small>${participant.was_goalkeeper ? 'Portero' : 'Jugador'}</small></span>
+                                <span class="player-line__copy">
+                                    <span class="player-line__name-row">
+                                        <strong class="player-line__name">${esc(playerName(participant.player_id))}</strong>
+                                        ${participant.player_id === matchMvpPlayerId ? `<span class="player-line__mvp-badge" title="MVP del partido">${icon('mvp', 'MVP del partido')}</span>` : ''}
+                                    </span>
+                                    <small>${participant.was_goalkeeper ? 'Portero' : 'Jugador'}</small>
+                                </span>
                                 ${participant.was_goalkeeper ? '<span class="goalkeeper-glove" title="Portero">🧤</span>' : ''}
                                 <span class="player-line__chevron" aria-hidden="true">›</span>
                             </a>`;
