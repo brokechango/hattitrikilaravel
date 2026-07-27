@@ -245,7 +245,8 @@ jobs:
             --origin "$DEPLOYMENT_URL" \
             --release dist/release.json \
             --attempts 12 \
-            --delay-ms 5000
+            --consecutive 2 \
+            --delay-ms 3000
 
       - name: Set up Supabase CLI
         uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3
@@ -295,16 +296,19 @@ jobs:
             --origin "$DEPLOYMENT_URL" \
             --release dist/release.json \
             --attempts 12 \
-            --delay-ms 5000
+            --consecutive 2 \
+            --delay-ms 3000
           node scripts/verify-static-release.mjs \
             --origin https://hattitrikifc.pro \
             --release dist/release.json \
             --attempts 24 \
-            --delay-ms 5000
+            --consecutive 3 \
+            --delay-ms 10000
           node scripts/verify-static-release.mjs \
             --origin https://www.hattitrikifc.pro \
             --canonical-origin https://hattitrikifc.pro \
             --attempts 12 \
+            --consecutive 3 \
             --delay-ms 5000
 
       - name: Roll back Cloudflare Pages when production verification fails

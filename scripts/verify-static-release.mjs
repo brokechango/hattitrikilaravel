@@ -12,6 +12,7 @@ const ASSET_CONTENT_TYPES = {
 const parseArguments = (values) => {
     const options = {
         attempts: 1,
+        consecutive: 1,
         delayMs: 5_000,
     };
 
@@ -36,10 +37,21 @@ const parseArguments = (values) => {
     }
 
     options.attempts = Number.parseInt(options.attempts, 10);
+    options.consecutive = Number.parseInt(options.consecutive, 10);
     options.delayMs = Number.parseInt(options.delayMs, 10);
 
     if (!Number.isInteger(options.attempts) || options.attempts < 1) {
         throw new Error("--attempts must be a positive integer.");
+    }
+
+    if (
+        !Number.isInteger(options.consecutive) ||
+        options.consecutive < 1 ||
+        options.consecutive > options.attempts
+    ) {
+        throw new Error(
+            "--consecutive must be a positive integer no greater than --attempts.",
+        );
     }
 
     return options;
@@ -339,26 +351,41 @@ const verifyRemoteRelease = async (origin, expectedRelease) => {
     );
 };
 
-const retry = async (attempts, delayMs, operation) => {
+const retry = async (attempts, delayMs, operation, consecutive = 1) => {
     let lastError;
+    let successfulChecks = 0;
 
     for (let attempt = 1; attempt <= attempts; attempt += 1) {
         try {
             await operation();
-            return attempt;
+            successfulChecks += 1;
+
+            if (successfulChecks >= consecutive) {
+                return attempt;
+            }
+
+            process.stdout.write(
+                `Check ${attempt}/${attempts} passed (${successfulChecks}/${consecutive} consecutive).\n`,
+            );
         } catch (error) {
             lastError = error;
+            successfulChecks = 0;
             process.stderr.write(
                 `Attempt ${attempt}/${attempts} failed: ${error.message}\n`,
             );
+        }
 
-            if (attempt < attempts) {
-                await sleep(delayMs);
-            }
+        if (attempt < attempts) {
+            await sleep(delayMs);
         }
     }
 
-    throw lastError;
+    throw (
+        lastError ||
+        new Error(
+            `The deployment did not remain healthy for ${consecutive} consecutive checks.`,
+        )
+    );
 };
 
 const main = async () => {
@@ -375,11 +402,18 @@ const main = async () => {
     assert(options.origin, "Use --artifact or provide --origin.");
 
     if (options.canonicalOrigin) {
-        const attempt = await retry(options.attempts, options.delayMs, () =>
-            verifyCanonicalRedirect(options.origin, options.canonicalOrigin),
+        const attempt = await retry(
+            options.attempts,
+            options.delayMs,
+            () =>
+                verifyCanonicalRedirect(
+                    options.origin,
+                    options.canonicalOrigin,
+                ),
+            options.consecutive,
         );
         process.stdout.write(
-            `Canonical redirect verified on attempt ${attempt}.\n`,
+            `Canonical redirect remained healthy through attempt ${attempt}.\n`,
         );
         return;
     }
@@ -389,11 +423,14 @@ const main = async () => {
         "--release is required for a remote release check.",
     );
     const expectedRelease = await readRelease(path.resolve(options.release));
-    const attempt = await retry(options.attempts, options.delayMs, () =>
-        verifyRemoteRelease(options.origin, expectedRelease),
+    const attempt = await retry(
+        options.attempts,
+        options.delayMs,
+        () => verifyRemoteRelease(options.origin, expectedRelease),
+        options.consecutive,
     );
     process.stdout.write(
-        `${options.origin} serves release ${expectedRelease.version} exactly (attempt ${attempt}).\n`,
+        `${options.origin} serves release ${expectedRelease.version} exactly and remained stable through attempt ${attempt}.\n`,
     );
 };
 

@@ -47,8 +47,10 @@ condiciones:
 5. El `dry-run` y la aplicación de migraciones de Supabase terminan
    correctamente.
 6. La URL inmutable de Pages y `hattitrikifc.pro` sirven la misma release byte
-   a byte; las rutas `/rankings` y `/partidos` no sirven HTML obsoleto.
-7. `www.hattitrikifc.pro` devuelve el `308` canónico exacto.
+   a byte durante varias comprobaciones consecutivas; las rutas `/rankings` y
+   `/partidos` no sirven HTML obsoleto.
+7. `www.hattitrikifc.pro` devuelve el `308` canónico exacto durante tres
+   comprobaciones consecutivas.
 
 Si el punto 6 o 7 falla, el workflow revierte Pages al deployment de producción
 sano que guardó antes de publicar y finaliza en rojo.
