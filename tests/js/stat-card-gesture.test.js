@@ -5,12 +5,17 @@ import {
 } from '../../resources/js/stat-card-gesture';
 
 describe('stat card gestures', () => {
-    it('captures the pointer on the card so a short press still clicks the card', () => {
-        const card = { setPointerCapture: vi.fn() };
+    it('captures the pointer on the stable grid because the dragged card moves in the DOM', () => {
+        const grid = { setPointerCapture: vi.fn() };
+        const card = {
+            closest: vi.fn().mockReturnValue(grid),
+            setPointerCapture: vi.fn(),
+        };
 
-        captureStatCardPointer(card, 17);
+        expect(captureStatCardPointer(card, 17)).toBe(grid);
 
-        expect(card.setPointerCapture).toHaveBeenCalledWith(17);
+        expect(grid.setPointerCapture).toHaveBeenCalledWith(17);
+        expect(card.setPointerCapture).not.toHaveBeenCalled();
     });
 
     it('keeps small pointer movement eligible for a click', () => {

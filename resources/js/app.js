@@ -2563,6 +2563,10 @@ root.addEventListener('pointerdown', (event) => {
         grid,
         timer: 0,
     };
+    // The card is moved between grid slots while dragging. Pointer capture on
+    // that movable node is released by Chromium as soon as the DOM move occurs,
+    // which fires lostpointercapture and cancels the reorder. Keep capture on
+    // the stable grid instead.
     captureStatCardPointer(card, event.pointerId);
     reorder.timer = window.setTimeout(() => activateStatReorder(reorder), STAT_LONG_PRESS_DELAY);
     state.statReorder = reorder;
