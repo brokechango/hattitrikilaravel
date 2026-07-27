@@ -76,6 +76,48 @@ php artisan route:list
 php artisan migrate:status
 ```
 
+## CI/CD de producción
+
+El workflow `.github/workflows/web-cicd.yml` valida Composer, Pint, PHPUnit,
+Vitest y la build de Vite en cada pull request dirigido a `main`. En los
+pushes a `main`, exporta la vista Blade y los assets de Vite como una SPA
+estática, aplica las migraciones pendientes de Supabase, despliega la Edge
+Function de invitaciones y publica el mismo artefacto probado en el proyecto
+existente de Cloudflare Pages.
+
+El despliegue conserva la infraestructura de `hattitrikifc.pro`: Cloudflare
+Pages Direct Upload, cabeceras de seguridad mediante `_headers` y Supabase
+como backend. PHP se utiliza durante la build para renderizar Blade, pero no
+forma parte del artefacto público.
+
+Antes del primer despliegue en este repositorio:
+
+1. Crea y protege el entorno de GitHub `cloudflare-pages`. Añade al menos un
+   revisor requerido para que los cambios de base de datos y el reemplazo de
+   producción necesiten aprobación.
+2. Configura como variables de repositorio `CLOUDFLARE_ACCOUNT_ID`,
+   `CLOUDFLARE_PAGES_PROJECT`, `SUPABASE_PROJECT_REF`, `SUPABASE_URL` y
+   `SUPABASE_PUBLISHABLE_KEY`.
+3. Configura como secretos `CLOUDFLARE_API_TOKEN`, `SUPABASE_ACCESS_TOKEN` y
+   `SUPABASE_DB_PASSWORD`.
+4. Usa el mismo valor de `CLOUDFLARE_PAGES_PROJECT` que el proyecto que ya
+   tiene asociado `hattitrikifc.pro`. El token de Cloudflare solo necesita
+   acceso de edición a Pages en esa cuenta.
+5. Revisa una vez el historial remoto con `supabase migration list` y
+   reconcilia las migraciones que se hubieran aplicado manualmente antes de
+   permitir el primer `supabase db push`. El procedimiento auditado para el
+   proyecto actual está en
+   [`docs/production-cutover.md`](docs/production-cutover.md).
+
+Para generar localmente el mismo artefacto:
+
+```powershell
+$env:SUPABASE_URL = 'https://tu-proyecto.supabase.co'
+$env:SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_...'
+npm run build
+php scripts/export-static.php dist
+```
+
 ## Rutas de cliente
 
 La aplicación mantiene las rutas hash estables del proyecto original:
