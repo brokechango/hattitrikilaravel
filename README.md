@@ -120,25 +120,26 @@ php scripts/export-static.php dist
 
 ## Rutas de cliente
 
-La aplicación mantiene las rutas hash estables del proyecto original:
+La aplicación utiliza URLs limpias y convierte automáticamente los enlaces
+antiguos con `#/` a su equivalente actual:
 
 ```text
-#/inicio
-#/partidos
-#/partidos/{id-hex}
-#/rankings
-#/rankings/jugador/{id-hex}
-#/perfil
-#/mister
-#/mister/partidos
-#/mister/partidos/nuevo
-#/mister/partidos/{id-hex}
-#/mister/jugadores
-#/mister/jugadores/nuevo
-#/mister/jugadores/{id-hex}
-#/mister/invitacion
-#/mister/equipos
-#/mister/equipos/resultado
+/inicio
+/partidos
+/partidos/{id-hex}
+/rankings
+/rankings/jugador/{id-hex}
+/perfil
+/mister
+/mister/partidos
+/mister/partidos/nuevo
+/mister/partidos/{id-hex}
+/mister/jugadores
+/mister/jugadores/nuevo
+/mister/jugadores/{id-hex}
+/mister/invitacion
+/mister/equipos
+/mister/equipos/resultado
 ```
 
 Los identificadores se codifican en hexadecimal UTF-8 igual que en la implementación Kotlin, por lo que los enlaces son compatibles entre ambas versiones.

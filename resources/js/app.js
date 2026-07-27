@@ -15,6 +15,11 @@ const root = document.querySelector('#app');
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const authCallback = new URLSearchParams(location.hash.replace(/^#/, ''));
 const callbackType = authCallback.get('type');
+const legacyRoute = location.hash.startsWith('#/') ? location.hash.slice(1) : null;
+
+if (legacyRoute) {
+    history.replaceState({}, '', `${legacyRoute}${location.search}`);
+}
 const RANKING_CATEGORY_KEYS = [
     'top-scorer',
     'goals-per-match',
@@ -81,7 +86,7 @@ const state = {
     randomizerResult: null,
     dialog: null,
     unsaved: false,
-    lastHash: location.hash,
+    lastPath: location.pathname,
 };
 
 const ICONS = {
@@ -156,18 +161,20 @@ function formatPenaltyScore(teamAScore, teamBScore) {
 }
 
 function currentRoute() {
-    const hash = location.hash;
-    return hash.startsWith('#/') ? hash.slice(1) : '/inicio';
+    const path = location.pathname.replace(/\/+$/, '');
+    return path || '/inicio';
 }
 
 function navigate(route, replace = false) {
-    const target = `#${route.startsWith('/') ? route : `/${route}`}`;
+    const target = route.startsWith('/') ? route : `/${route}`;
     if (replace) {
         history.replaceState({}, '', target);
-        state.lastHash = target;
+    } else if (location.pathname !== target) {
+        history.pushState({}, '', target);
     }
-    else if (location.hash !== target) location.hash = target;
-    else render();
+    state.lastPath = target;
+    render();
+    queueMicrotask(() => document.querySelector('#main-content')?.focus({ preventScroll: true }));
 }
 
 function routeTab(route = currentRoute()) {
@@ -505,7 +512,7 @@ function avatar(player, large = false) {
 
 function navLink(route, tab, label, iconName, modifier = '') {
     const active = routeTab() === tab;
-    return `<a class="nav-link ${modifier}" href="#${route}" ${active ? 'aria-current="page"' : ''}>
+    return `<a class="nav-link ${modifier}" href="${route}" ${active ? 'aria-current="page"' : ''}>
         <span class="nav-indicator"><span class="nav-icon">${icon(iconName)}</span></span><span class="nav-label">${esc(label)}</span>
     </a>`;
 }
@@ -530,7 +537,7 @@ function shell(content, options = {}) {
                     ${isNested ? `<button class="topbar__back" type="button" data-action="back">Volver</button>` : `<img class="topbar__compact-logo" src="/hattitriki-app-icon.png" alt="Escudo de Hattitriki">`}
                     <span class="topbar__title">${esc(title)}</span>
                 </div>
-                <a class="topbar__brand" href="#/inicio">
+                <a class="topbar__brand" href="/inicio">
                     <img src="/hattitriki-app-icon.png" alt="Escudo de Hattitriki">
                     <span class="topbar__brand-copy">
                         <strong>HATTITRIKI FC</strong>
@@ -736,7 +743,7 @@ function renderHome() {
             <div class="league-overview__status"><i></i><span>${esc(selectedSeason?.name || 'Temporada actual')}</span></div>
         </section>
         <section>
-            ${latest ? `<a class="card card--highlight card--clickable hero-score" href="#/partidos/${toHex(latest.id)}">
+            ${latest ? `<a class="card card--highlight card--clickable hero-score" href="/partidos/${toHex(latest.id)}">
                 <div class="hero-score__meta"><span class="eyebrow"><i class="live-dot"></i> ÚLTIMO RESULTADO</span><span class="hero-score__date">${esc(formatDate(latest.playedOn))} · FINAL</span></div>
                 <div class="score-line${latest.teamAPenaltyScore != null ? ' score-line--with-shootout' : ''}">
                     <span class="team-name"><i class="team-mark">A</i><b>Equipo A</b></span>
@@ -855,7 +862,7 @@ function renderHistory() {
 }
 
 function renderMatchRow(match) {
-    return `<a class="card card--clickable match-row" href="#/partidos/${toHex(match.id)}" aria-label="Abrir partido del ${esc(formatDate(match.playedOn))}, ${match.teamAScore} a ${match.teamBScore}">
+    return `<a class="card card--clickable match-row" href="/partidos/${toHex(match.id)}" aria-label="Abrir partido del ${esc(formatDate(match.playedOn))}, ${match.teamAScore} a ${match.teamBScore}">
         <span class="match-row__meta"><span class="match-row__date">${esc(formatDate(match.playedOn))}</span><span class="match-row__final">FINAL</span></span>
         <span class="match-row__score"><span class="match-row__team"><i class="team-mark">A</i>Equipo A</span><strong class="score-pill">${match.teamAScore} - ${match.teamBScore}</strong><span class="match-row__team">Equipo B<i class="team-mark team-mark--gold">B</i></span></span>
         <span class="match-row__penalties">${match.teamAPenaltyScore != null ? `<span class="penalty-score">${formatPenaltyScore(match.teamAPenaltyScore, match.teamBPenaltyScore)}</span>` : '&nbsp;'}</span>
@@ -894,7 +901,7 @@ function renderRankings() {
 
 function renderRankingRow(entry, index, definition, rankingRowClasses) {
     const rankNumber = index + 1;
-    return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ' ranking-row--podium' : ''}" href="#/rankings/jugador/${toHex(entry.player.id)}">
+    return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ' ranking-row--podium' : ''}" href="/rankings/jugador/${toHex(entry.player.id)}">
         <span class="rank">${rankNumber}</span>${avatar(entry.player)}<span class="ranking-name">${esc(entry.player.name)}</span>
         ${definition.columns.map(([, value, primary]) => `<span class="ranking-metric${primary ? ' ranking-metric--primary' : ''}">${esc(value(entry))}</span>`).join('')}
         ${state.rankingView === 'detailed' ? `<span class="recent-form"><span class="recent-form__label">RACHA</span>${entry.recentForm.map((result) => `<span class="form-dot form-dot--${result}" title="${result === 'win' ? 'Victoria' : result === 'draw' ? 'Empate' : result === 'loss' ? 'Derrota' : result === 'none' ? 'No jugó' : 'Partido pendiente'}">${result === 'win' ? 'V' : result === 'draw' ? 'E' : result === 'loss' ? 'D' : ''}</span>`).join('')}</span>` : ''}
@@ -1017,7 +1024,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
 
 function renderConnection(title, copy, connection, kind = '') {
     return `<div class="card connection-card connection-card--${kind}"><h3>${esc(title)}</h3><p class="muted connection-card__copy">${esc(copy)}</p>
-        ${connection ? `<a class="connection-card__player" href="#/rankings/jugador/${toHex(connection[0])}">${avatar(playerById(connection[0]))}<strong class="connection-card__name">${esc(playerName(connection[0]))}</strong><span class="connection-card__matches">${connection[1]} PJ <span aria-hidden="true">›</span></span></a>${connection[2] ? '<p class="muted connection-card__tie">Empata con otro jugador.</p>' : ''}` : '<div class="connection-card__value muted">No hay suficientes partidos</div>'}
+        ${connection ? `<a class="connection-card__player" href="/rankings/jugador/${toHex(connection[0])}">${avatar(playerById(connection[0]))}<strong class="connection-card__name">${esc(playerName(connection[0]))}</strong><span class="connection-card__matches">${connection[1]} PJ <span aria-hidden="true">›</span></span></a>${connection[2] ? '<p class="muted connection-card__tie">Empata con otro jugador.</p>' : ''}` : '<div class="connection-card__value muted">No hay suficientes partidos</div>'}
     </div>`;
 }
 
@@ -1061,7 +1068,7 @@ function renderMatchDetail(id) {
                         <header class="team-card__heading"><i class="team-mark${team === 'B' ? ' team-mark--gold' : ''}">${team}</i><span><small>EQUIPO</small><strong>Equipo ${team}</strong></span><b>${participants.length}</b></header>
                         <div class="team-card__players">${participants.map((participant) => {
                             const player = playerById(participant.player_id);
-                            return `<a class="player-line card--clickable" href="#/rankings/jugador/${toHex(participant.player_id)}">
+                            return `<a class="player-line card--clickable" href="/rankings/jugador/${toHex(participant.player_id)}">
                                 ${avatar(player)}
                                 <span class="player-line__copy"><strong class="player-line__name">${esc(playerName(participant.player_id))}</strong><small>${participant.was_goalkeeper ? 'Portero' : 'Jugador'}</small></span>
                                 ${participant.was_goalkeeper ? '<span class="goalkeeper-glove" title="Portero">🧤</span>' : ''}
@@ -1077,7 +1084,7 @@ function renderMatchDetail(id) {
                 ${goalEntries.length ? goalEntries.map((goal) => {
                     const team = teamForGoal(goal);
                     const ownGoal = Boolean(goal.is_own_goal);
-                    return `<a class="goal-entry goal-entry--${team.toLowerCase()}${ownGoal ? ' goal-entry--own' : ''}" href="#/rankings/jugador/${toHex(goal.player_id)}">
+                    return `<a class="goal-entry goal-entry--${team.toLowerCase()}${ownGoal ? ' goal-entry--own' : ''}" href="/rankings/jugador/${toHex(goal.player_id)}">
                         <span class="goal-entry__top">
                             <span class="goal-entry__icon">${ownGoal ? 'PP' : '⚽'}</span>
                             <span class="goal-entry__copy"><small>EQUIPO ${team}</small><strong>${esc(playerName(goal.player_id))}</strong>${ownGoal ? '<em>En propia puerta</em>' : ''}</span>
@@ -1163,14 +1170,14 @@ function renderAdmin() {
         <p class="admin-welcome">Tu cuenta tiene permisos de míster. Elige qué quieres gestionar.</p>
         <div class="admin-grid">${sections.map(([title, copy, tools]) => `<section class="card admin-section">
             <h2>${esc(title)}</h2><p>${esc(copy)}</p>
-            ${tools.map(([route, , label], index) => `<a class="btn ${index ? 'btn--outline' : ''} btn--wide" href="#${route}">${esc(label)}</a>`).join('')}
+            ${tools.map(([route, , label], index) => `<a class="btn ${index ? 'btn--outline' : ''} btn--wide" href="${route}">${esc(label)}</a>`).join('')}
         </section>`).join('')}</div>
         <p class="admin-version">Versión Laravel ${esc(document.documentElement.dataset.appVersion || '13')}</p>
     </section>`;
 }
 
 function restrictedPage() {
-    return `<section class="page">${pageHeader('Acceso restringido')}<div class="card">${stateView('error', 'Acceso restringido', 'Inicia sesión como administrador desde la Zona míster.', `<a class="btn" href="#/inicio">Volver al inicio</a>`)}</div></section>`;
+    return `<section class="page">${pageHeader('Acceso restringido')}<div class="card">${stateView('error', 'Acceso restringido', 'Inicia sesión como administrador desde la Zona míster.', `<a class="btn" href="/inicio">Volver al inicio</a>`)}</div></section>`;
 }
 
 function renderDialog() {
@@ -1304,7 +1311,7 @@ async function authorizeAndLoad() {
         state.seasons = [];
         state.selectedSeasonId = null;
         loadUserPreferences();
-        if (!location.hash.startsWith('#/')) navigate('/inicio', true);
+        if (location.pathname === '/') navigate('/inicio', true);
         await loadApplicationData();
     } catch (error) {
         state.access = null;
@@ -1359,7 +1366,7 @@ function renderManagePlayers() {
         .filter((player) => filter.status === 'active' ? player.is_active : filter.status === 'inactive' ? !player.is_active : filter.status === 'cardio' ? player.has_cardio : true)
         .sort((a, b) => (filter.order === 'za' ? -1 : 1) * a.name.localeCompare(b.name, 'es'));
     return `<section class="page stack stack--wide">
-        ${pageHeader('Gestionar jugadores', 'Busca, activa, desactiva o edita jugadores; el borrado queda reservado a perfiles sin historial.', `<a class="btn btn--compact" href="#/mister/jugadores/nuevo">${icon('plus')} Añadir jugador</a>`)}
+        ${pageHeader('Gestionar jugadores', 'Busca, activa, desactiva o edita jugadores; el borrado queda reservado a perfiles sin historial.', `<a class="btn btn--compact" href="/mister/jugadores/nuevo">${icon('plus')} Añadir jugador</a>`)}
         <form id="manage-players-filter" class="card card__body form-grid">
             <label class="field"><span>Buscar jugador</span><input class="input" name="search" value="${esc(filter.search)}" placeholder="Nombre del jugador"></label>
             <label class="field"><span>Estado</span><select class="select" name="status">
@@ -1376,12 +1383,12 @@ function renderManagePlayers() {
                 <td><span class="status-badge ${player.is_active ? 'status-badge--success' : ''}">${player.is_active ? 'Activo' : 'Inactivo'}</span></td>
                 <td class="optional">${player.has_cardio ? 'Sí' : 'No'}</td>
                 <td><div class="table-actions">
-                    <a class="icon-btn" href="#/mister/jugadores/${toHex(player.id)}" aria-label="Editar ${esc(player.name)}">${icon('edit')}</a>
+                    <a class="icon-btn" href="/mister/jugadores/${toHex(player.id)}" aria-label="Editar ${esc(player.name)}">${icon('edit')}</a>
                     <button class="btn btn--outline btn--compact" type="button" data-action="toggle-player-active" data-id="${esc(player.id)}" data-active="${player.is_active}">${player.is_active ? 'Desactivar jugador' : 'Activar jugador'}</button>
                     <button class="icon-btn" type="button" data-action="delete-player" data-id="${esc(player.id)}" data-name="${esc(player.name)}" aria-label="Borrar ${esc(player.name)}">${icon('trash')}</button>
                 </div></td>
             </tr>`).join('')}</tbody>
-        </table></div>` : `<div class="card">${stateView('empty', allPlayers.length ? 'No hay jugadores que coincidan con los filtros.' : 'No hay jugadores para gestionar.', allPlayers.length ? 'Prueba otro nombre o cambia el estado seleccionado.' : 'Añade el primer jugador para empezar a preparar la liga.', allPlayers.length ? '' : '<a class="btn" href="#/mister/jugadores/nuevo">Añadir jugador</a>')}</div>`}
+        </table></div>` : `<div class="card">${stateView('empty', allPlayers.length ? 'No hay jugadores que coincidan con los filtros.' : 'No hay jugadores para gestionar.', allPlayers.length ? 'Prueba otro nombre o cambia el estado seleccionado.' : 'Añade el primer jugador para empezar a preparar la liga.', allPlayers.length ? '' : '<a class="btn" href="/mister/jugadores/nuevo">Añadir jugador</a>')}</div>`}
     </section>`;
 }
 
@@ -1434,7 +1441,7 @@ function renderManageMatches() {
                 : true)
         .sort((a, b) => (filter.order === 'oldest' ? 1 : -1) * a.played_on.localeCompare(b.played_on));
     return `<section class="page stack stack--wide">
-        ${pageHeader('Gestionar partidos', 'Encuentra, edita o borra actas y sus datos asociados.', `<a class="btn btn--compact" href="#/mister/partidos/nuevo">${icon('plus')} Nuevo partido</a>`)}
+        ${pageHeader('Gestionar partidos', 'Encuentra, edita o borra actas y sus datos asociados.', `<a class="btn btn--compact" href="/mister/partidos/nuevo">${icon('plus')} Nuevo partido</a>`)}
         <form id="manage-matches-filter" class="card card__body form-grid">
             <label class="field"><span>Buscar por fecha o resultado</span><input class="input" name="search" value="${esc(filter.search)}" placeholder="Fecha o resultado"></label>
             <label class="field"><span>Tipo de partido</span><select class="select" name="type"><option value="all" ${filter.type === 'all' ? 'selected' : ''}>Todos</option><option value="draws" ${filter.type === 'draws' ? 'selected' : ''}>Empates</option><option value="penalties" ${filter.type === 'penalties' ? 'selected' : ''}>Con penaltis</option></select></label>
@@ -1447,10 +1454,10 @@ function renderManageMatches() {
             <tbody>${matches.map((match) => `<tr>
                 <td>${esc(formatDate(match.played_on))}</td><td><strong class="gold">${match.team_a_score} - ${match.team_b_score}</strong></td>
                 <td class="optional">${match.team_a_penalty_score == null ? '—' : `${match.team_a_penalty_score} - ${match.team_b_penalty_score}`}</td>
-                <td><div class="table-actions"><a class="icon-btn" href="#/mister/partidos/${toHex(match.id)}" aria-label="Editar partido">${icon('edit')}</a>
+                <td><div class="table-actions"><a class="icon-btn" href="/mister/partidos/${toHex(match.id)}" aria-label="Editar partido">${icon('edit')}</a>
                     <button class="icon-btn" type="button" data-action="delete-match" data-id="${esc(match.id)}" data-date="${esc(formatDate(match.played_on))}" aria-label="Borrar partido">${icon('trash')}</button></div></td>
             </tr>`).join('')}</tbody>
-        </table></div>` : `<div class="card">${stateView('empty', allMatches.length ? 'No hay partidos que coincidan con los filtros.' : 'No hay partidos para gestionar.', allMatches.length ? 'Prueba otra búsqueda o cambia el tipo de partido.' : 'Crea la primera acta de la liga.', allMatches.length ? '' : '<a class="btn" href="#/mister/partidos/nuevo">Nuevo partido</a>')}</div>`}
+        </table></div>` : `<div class="card">${stateView('empty', allMatches.length ? 'No hay partidos que coincidan con los filtros.' : 'No hay partidos para gestionar.', allMatches.length ? 'Prueba otra búsqueda o cambia el tipo de partido.' : 'Crea la primera acta de la liga.', allMatches.length ? '' : '<a class="btn" href="/mister/partidos/nuevo">Nuevo partido</a>')}</div>`}
     </section>`;
 }
 
@@ -1772,7 +1779,7 @@ function renderInvitation() {
             <div class="card card--highlight card__body--large empty-state"><div><div class="state-icon">${icon('mail')}</div><h2 class="state-title">Invitación enviada</h2>
             <p class="state-copy">${esc(state.invitationSuccess.playerName)} recibirá el acceso en ${esc(state.invitationSuccess.email)}.</p>
             <p class="muted">El jugador ya no aparece entre las personas disponibles para evitar duplicados.</p>
-            <div class="inline"><button class="btn btn--outline" data-action="invite-another">Invitar a otra persona</button><a class="btn" href="#/mister">Volver a Zona míster</a></div></div></div>
+            <div class="inline"><button class="btn btn--outline" data-action="invite-another">Invitar a otra persona</button><a class="btn" href="/mister">Volver a Zona míster</a></div></div></div>
         </section>`;
     }
     return `<section class="page stack stack--wide">
@@ -1847,7 +1854,7 @@ function drawTeams() {
 
 function renderRandomizerResult() {
     if (!isAdmin()) return restrictedPage();
-    if (!state.randomizerResult) return `<section class="page">${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}<div class="card">${stateView('empty', 'No hay un sorteo activo', 'Vuelve al generador para elegir la convocatoria.', '<a class="btn" href="#/mister/equipos">Volver al generador</a>')}</div></section>`;
+    if (!state.randomizerResult) return `<section class="page">${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}<div class="card">${stateView('empty', 'No hay un sorteo activo', 'Vuelve al generador para elegir la convocatoria.', '<a class="btn" href="/mister/equipos">Volver al generador</a>')}</div></section>`;
     const teams = state.randomizerResult;
     const names = ['A', 'B', 'C', 'D', 'E', 'F'];
     return `<section class="page stack stack--wide">
@@ -1911,7 +1918,7 @@ async function handleAuthSubmit(form) {
             const { error } = await state.client.auth.updateUser({ password });
             if (error) throw error;
             state.authMode = 'login';
-            history.replaceState({}, '', '#/inicio');
+            history.replaceState({}, '', '/inicio');
             await authorizeAndLoad();
             return;
         }
@@ -1985,10 +1992,24 @@ root.addEventListener('submit', async (event) => {
 });
 
 root.addEventListener('click', async (event) => {
-    const internalLink = event.target.closest('a[href^="#/"]');
-    if (internalLink && state.unsaved && internalLink.hash !== location.hash) {
+    const internalLink = event.target.closest('a[href^="/"]');
+    if (
+        internalLink
+        && !internalLink.hasAttribute('download')
+        && internalLink.target !== '_blank'
+        && event.button === 0
+        && !event.metaKey
+        && !event.ctrlKey
+        && !event.shiftKey
+        && !event.altKey
+    ) {
+        const targetPath = new URL(internalLink.href, location.origin).pathname;
         event.preventDefault();
-        confirmDiscard(() => navigate(internalLink.hash.slice(1)));
+        if (state.unsaved && targetPath !== location.pathname) {
+            confirmDiscard(() => navigate(targetPath));
+            return;
+        }
+        navigate(targetPath);
         return;
     }
 
@@ -2569,14 +2590,14 @@ async function prepareAvatar(file) {
     return blob;
 }
 
-window.addEventListener('hashchange', () => {
-    if (state.unsaved && state.lastHash && location.hash !== state.lastHash) {
-        const requestedHash = location.hash;
-        history.replaceState({}, '', state.lastHash);
-        confirmDiscard(() => navigate(requestedHash.slice(1)));
+window.addEventListener('popstate', () => {
+    if (state.unsaved && state.lastPath && location.pathname !== state.lastPath) {
+        const requestedPath = location.pathname;
+        history.replaceState({}, '', state.lastPath);
+        confirmDiscard(() => navigate(requestedPath));
         return;
     }
-    state.lastHash = location.hash;
+    state.lastPath = location.pathname;
     state.menuOpen = false;
     render();
     queueMicrotask(() => document.querySelector('#main-content')?.focus({ preventScroll: true }));
