@@ -100,6 +100,10 @@ final class HattitrikiWebTest extends TestCase
             'data-boot-loader',
             (string) file_get_contents($bootGuardPath),
         );
+        $this->assertStringContainsString(
+            'asset-recovery',
+            (string) file_get_contents($bootGuardPath),
+        );
         $this->assertGreaterThan(100_000, filesize($crestPath));
     }
 }

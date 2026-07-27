@@ -131,7 +131,21 @@ if (! is_string($manifestHash)) {
     throw new RuntimeException('Unable to calculate the Vite manifest version.');
 }
 
-$assetVersion = substr($manifestHash, 0, 12);
+$releaseCommit = strtolower(trim((string) getenv('RELEASE_COMMIT')));
+if (preg_match('/^[a-f0-9]{40}$/', $releaseCommit) !== 1) {
+    $releaseCommit = 'local';
+}
+
+$releaseId = trim((string) getenv('RELEASE_ID'));
+if ($releaseId !== '' && preg_match('/^[A-Za-z0-9._:-]{1,200}$/', $releaseId) !== 1) {
+    throw new RuntimeException('RELEASE_ID contains unsupported characters.');
+}
+
+$assetVersion = substr(
+    $releaseId === '' ? $manifestHash : hash('sha256', $releaseId),
+    0,
+    12,
+);
 $html = preg_replace_callback(
     '#\b(href|src)="(/build/assets/[^"?]+)"#',
     static fn (array $matches): string => sprintf(
@@ -145,6 +159,16 @@ $html = preg_replace_callback(
 
 if ($html === null) {
     throw new RuntimeException('Unable to version Vite asset URLs.');
+}
+
+$releaseMeta = sprintf(
+    '    <meta name="hattitriki-release" content="%s">'.PHP_EOL,
+    $assetVersion,
+);
+$html = str_replace('</head>', $releaseMeta.'</head>', $html, $releaseMetaCount);
+
+if ($releaseMetaCount !== 1) {
+    throw new RuntimeException('Unable to add the release marker to the application document.');
 }
 
 if (str_contains($html, '@vite') || ! str_contains($html, '/build/assets/')) {
@@ -174,5 +198,60 @@ foreach ($files as $path => $contents) {
 
 $cloudflareDirectory = $basePath.DIRECTORY_SEPARATOR.'deploy'.DIRECTORY_SEPARATOR.'cloudflare';
 $copyDirectory($cloudflareDirectory, $normalizedTarget);
+
+$assetMatches = [];
+if (preg_match_all(
+    '#\b(?:href|src)="(?<url>/build/assets/[^"]+)"#',
+    $html,
+    $assetMatches,
+) === false) {
+    throw new RuntimeException('Unable to collect the release assets.');
+}
+
+$releaseAssets = [];
+foreach (array_values(array_unique($assetMatches['url'] ?? [])) as $assetUrl) {
+    $assetPath = parse_url($assetUrl, PHP_URL_PATH);
+
+    if (! is_string($assetPath) || ! str_starts_with($assetPath, '/build/assets/')) {
+        throw new RuntimeException("Invalid release asset URL: {$assetUrl}.");
+    }
+
+    $assetFile = $normalizedTarget.str_replace('/', DIRECTORY_SEPARATOR, $assetPath);
+    $assetHash = is_file($assetFile) ? hash_file('sha256', $assetFile) : false;
+    $assetBytes = is_file($assetFile) ? filesize($assetFile) : false;
+
+    if (! is_string($assetHash) || ! is_int($assetBytes)) {
+        throw new RuntimeException("Unable to fingerprint release asset: {$assetPath}.");
+    }
+
+    $extension = strtolower((string) pathinfo($assetPath, PATHINFO_EXTENSION));
+    $releaseAssets[] = [
+        'url' => $assetUrl,
+        'path' => $assetPath,
+        'type' => $extension,
+        'sha256' => $assetHash,
+        'bytes' => $assetBytes,
+    ];
+}
+
+if ($releaseAssets === []) {
+    throw new RuntimeException('The release contains no Vite assets.');
+}
+
+usort(
+    $releaseAssets,
+    static fn (array $left, array $right): int => strcmp($left['path'], $right['path']),
+);
+
+$release = json_encode([
+    'version' => $assetVersion,
+    'commit' => $releaseCommit,
+    'assets' => $releaseAssets,
+], JSON_THROW_ON_ERROR | JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES).PHP_EOL;
+$releasePath = $normalizedTarget.DIRECTORY_SEPARATOR.'release.json';
+
+if (file_put_contents($releasePath, $release) === false) {
+    throw new RuntimeException("Unable to write {$releasePath}.");
+}
 
 fwrite(STDOUT, "Static production artifact exported to {$normalizedTarget}.".PHP_EOL);

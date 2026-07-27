@@ -18,3 +18,9 @@
 
 /config.js
   Cache-Control: no-store
+
+/boot-guard.js
+  Cache-Control: no-store
+
+/release.json
+  Cache-Control: no-store
