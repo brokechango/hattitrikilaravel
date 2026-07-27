@@ -2177,8 +2177,8 @@ noscript {
 
 .profile-avatar-edit {
     position: absolute;
-    right: 0;
-    bottom: 0;
+    right: -8px;
+    bottom: -8px;
     display: grid;
     width: 38px;
     height: 38px;
@@ -3550,8 +3550,6 @@ button.step {
     }
 
     .profile-avatar-edit {
-        right: -1px;
-        bottom: -1px;
         width: 28px;
         height: 28px;
     }
