@@ -114,8 +114,22 @@ $application = require $basePath.DIRECTORY_SEPARATOR.'bootstrap'.DIRECTORY_SEPAR
 $application->make(Kernel::class)->bootstrap();
 $html = view('app')->render();
 
+$html = preg_replace_callback(
+    '#\b(href|src)="https?://[^/"]+(/build/assets/[^"]+)"#',
+    static fn (array $matches): string => sprintf('%s="%s"', $matches[1], $matches[2]),
+    $html,
+);
+
+if ($html === null) {
+    throw new RuntimeException('Unable to normalize Vite asset URLs.');
+}
+
 if (str_contains($html, '@vite') || ! str_contains($html, '/build/assets/')) {
     throw new RuntimeException('The Blade view did not render production Vite assets.');
+}
+
+if (preg_match('#\b(?:href|src)="https?://[^/"]+/build/assets/#', $html) === 1) {
+    throw new RuntimeException('Vite asset URLs must remain relative to support every production hostname.');
 }
 
 $config = sprintf(

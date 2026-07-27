@@ -100,7 +100,12 @@ jobs:
           grep -q '/build/assets/.*\.js' dist/index.html
           grep -q '/build/assets/.*\.css' dist/index.html
           grep -q 'Content-Security-Policy' dist/_headers
-          grep -q '/\\* /index.html 200' dist/_redirects
+          grep -Fqx '/* /index.html 200' dist/_redirects
+
+          if grep -E -q '(href|src)="https?://[^/"]+/build/assets/' dist/index.html; then
+            echo "The production artifact contains hostname-bound Vite asset URLs."
+            exit 1
+          fi
 
           if find dist -type f \( -name '*.php' -o -name '*.map' -o -name '.env*' \) -print -quit | grep -q .; then
             echo "The production artifact contains a forbidden server or source file."
@@ -216,5 +221,32 @@ jobs:
           DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
         run: |
           test -n "$DEPLOYMENT_URL"
-          curl --fail --silent --show-error --retry 5 --retry-all-errors \
-            "$DEPLOYMENT_URL" | grep -q 'HATTITRIKI FC'
+
+          for origin in \
+            "$DEPLOYMENT_URL" \
+            "https://hattitrikifc.pro" \
+            "https://www.hattitrikifc.pro"
+          do
+            html="$(
+              curl --fail --location --silent --show-error \
+                --retry 5 --retry-all-errors "$origin"
+            )"
+
+            printf '%s' "$html" | grep -q 'HATTITRIKI FC'
+
+            if printf '%s' "$html" | grep -E -q '(href|src)="https?://[^/"]+/build/assets/'; then
+              echo "Deployment at $origin contains hostname-bound Vite asset URLs."
+              exit 1
+            fi
+
+            asset_path="$(
+              printf '%s' "$html" \
+                | grep -oE '/build/assets/[^"]+\.js' \
+                | sed -n '1p'
+            )"
+
+            test -n "$asset_path"
+            curl --fail --location --silent --show-error \
+              --retry 5 --retry-all-errors \
+              "${origin%/}${asset_path}" > /dev/null
+          done
