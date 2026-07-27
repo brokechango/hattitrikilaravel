@@ -15,6 +15,8 @@ final class HattitrikiWebTest extends TestCase
             ->assertSee('<html lang="es">', false)
             ->assertSee('HATTITRIKI FC')
             ->assertSee('Acceso a Hattitriki')
+            ->assertSee('bouncing-ball-loader', false)
+            ->assertSee('⚽')
             ->assertSee('/config.js', false)
             ->assertSee('/hattitriki-app-icon.png', false);
     }

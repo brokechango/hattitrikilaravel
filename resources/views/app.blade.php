@@ -11,7 +11,8 @@
     >
     <meta name="robots" content="index, follow">
     <title>Hattitriki FC · Liga de fútbol amistosa</title>
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/hattitriki-app-icon.png" type="image/png">
+    <link rel="apple-touch-icon" href="/hattitriki-app-icon.png">
     <link rel="preload" href="/hattitriki-app-icon.png" as="image" fetchpriority="high">
     <script src="/config.js"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -25,7 +26,10 @@
                 <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
                 <h1>HATTITRIKI FC</h1>
                 <p>Preparando el acceso a la liga…</p>
-                <div class="loading-line" aria-hidden="true"></div>
+                <div class="bouncing-ball-loader" aria-hidden="true">
+                    <span class="bouncing-ball-loader__ball">⚽</span>
+                    <span class="bouncing-ball-loader__shadow"></span>
+                </div>
             </section>
         </main>
     </div>

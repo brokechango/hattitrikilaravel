@@ -1,0 +1,216 @@
+name: Web CI/CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PHP_VERSION: "8.3"
+  NODE_VERSION: "22"
+  SUPABASE_CLI_VERSION: "2.110.0"
+  WRANGLER_VERSION: "4.112.0"
+
+jobs:
+  build:
+    name: Test and build web
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
+        with:
+          php-version: ${{ env.PHP_VERSION }}
+          extensions: dom, mbstring, pdo_sqlite, sqlite3
+          coverage: none
+          tools: composer:v2
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Prepare Laravel environment
+        run: cp .env.example .env
+
+      - name: Install PHP dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Generate test application key
+        run: php artisan key:generate
+
+      - name: Install JavaScript dependencies
+        run: npm ci
+
+      - name: Validate dependency metadata
+        run: composer validate --strict
+
+      - name: Check PHP formatting
+        run: vendor/bin/pint --test
+
+      - name: Run PHP tests
+        run: composer test
+
+      - name: Run JavaScript tests
+        run: npm test
+
+      - name: Build Vite assets
+        run: npm run build
+
+      - name: Validate production configuration
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_PUBLISHABLE_KEY" ]]; then
+            echo "Configure SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY as repository variables."
+            exit 1
+          fi
+
+      - name: Export Cloudflare Pages artifact
+        env:
+          APP_ENV: production
+          APP_DEBUG: "false"
+          APP_URL: https://hattitrikifc.pro
+          SUPABASE_URL: ${{ (github.ref == 'refs/heads/main' && vars.SUPABASE_URL) || 'https://ci.supabase.co' }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ (github.ref == 'refs/heads/main' && vars.SUPABASE_PUBLISHABLE_KEY) || 'sb_publishable_ci_only' }}
+        run: php scripts/export-static.php dist
+
+      - name: Verify production artifact
+        shell: bash
+        run: |
+          test -f dist/index.html
+          test -f dist/config.js
+          test -f dist/_headers
+          test -f dist/build/manifest.json
+          grep -q 'HATTITRIKI FC' dist/index.html
+          grep -q '/build/assets/.*\.js' dist/index.html
+          grep -q '/build/assets/.*\.css' dist/index.html
+          grep -q 'Content-Security-Policy' dist/_headers
+
+          if find dist -type f \( -name '*.php' -o -name '*.map' -o -name '.env*' \) -print -quit | grep -q .; then
+            echo "The production artifact contains a forbidden server or source file."
+            exit 1
+          fi
+
+          if grep -E -i 'service_role|sb_secret_' dist/config.js; then
+            echo "The production artifact contains a forbidden Supabase credential."
+            exit 1
+          fi
+
+      - name: Upload production artifact
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: web-production
+          path: dist
+          if-no-files-found: error
+          retention-days: 1
+
+  deploy:
+    name: Migrate Supabase and deploy Cloudflare Pages
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      deployments: write
+    concurrency:
+      group: cloudflare-pages-production
+      cancel-in-progress: false
+    environment:
+      name: cloudflare-pages
+      url: ${{ steps.deploy.outputs.deployment-url }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Download production artifact
+        uses: actions/download-artifact@018cc2cf5baa6db3ef3c5f8a56943fffe632ef53 # v6
+        with:
+          name: web-production
+          path: dist
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@46f7f98c7f948ad727d22c1e67fab04c223a0520 # v3
+        with:
+          version: ${{ env.SUPABASE_CLI_VERSION }}
+
+      - name: Validate deployment configuration
+        shell: bash
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          missing=()
+          for name in \
+            CLOUDFLARE_API_TOKEN \
+            CLOUDFLARE_ACCOUNT_ID \
+            CLOUDFLARE_PAGES_PROJECT \
+            SUPABASE_ACCESS_TOKEN \
+            SUPABASE_DB_PASSWORD \
+            SUPABASE_PROJECT_REF
+          do
+            if [[ -z "${!name}" ]]; then
+              missing+=("$name")
+            fi
+          done
+
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing production configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+
+      - name: Preview pending Supabase migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: |
+          supabase link --project-ref "$SUPABASE_PROJECT_REF" --password "$SUPABASE_DB_PASSWORD"
+          supabase db push --dry-run --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Apply Supabase migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+        run: supabase db push --password "$SUPABASE_DB_PASSWORD"
+
+      - name: Deploy Supabase Edge Function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: supabase functions deploy send-league-invitation --project-ref "$SUPABASE_PROJECT_REF"
+
+      - name: Deploy artifact to Cloudflare Pages
+        id: deploy
+        uses: cloudflare/wrangler-action@ebbaa1584979971c8614a24965b4405ff95890e0 # v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerVersion: ${{ env.WRANGLER_VERSION }}
+          command: pages deploy dist --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test deployment
+        env:
+          DEPLOYMENT_URL: ${{ steps.deploy.outputs.deployment-url }}
+        run: |
+          test -n "$DEPLOYMENT_URL"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            "$DEPLOYMENT_URL" | grep -q 'HATTITRIKI FC'
