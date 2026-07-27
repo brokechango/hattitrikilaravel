@@ -94,11 +94,13 @@ jobs:
           test -f dist/index.html
           test -f dist/config.js
           test -f dist/_headers
+          test -f dist/_redirects
           test -f dist/build/manifest.json
           grep -q 'HATTITRIKI FC' dist/index.html
           grep -q '/build/assets/.*\.js' dist/index.html
           grep -q '/build/assets/.*\.css' dist/index.html
           grep -q 'Content-Security-Policy' dist/_headers
+          grep -q '/\\* /index.html 200' dist/_redirects
 
           if find dist -type f \( -name '*.php' -o -name '*.map' -o -name '.env*' \) -print -quit | grep -q .; then
             echo "The production artifact contains a forbidden server or source file."

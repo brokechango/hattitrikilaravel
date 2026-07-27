@@ -23,9 +23,26 @@ final class HattitrikiWebTest extends TestCase
 
     public function test_client_side_routes_receive_the_application_shell(): void
     {
-        $this->get('/cualquier/ruta/de/cliente')
-            ->assertOk()
-            ->assertSee('Hattitriki FC · Liga de fútbol amistosa');
+        foreach ([
+            '/inicio',
+            '/partidos',
+            '/partidos/616263',
+            '/rankings',
+            '/rankings/jugador/616263',
+            '/perfil',
+            '/mister/partidos/nuevo',
+        ] as $route) {
+            $this->get($route)
+                ->assertOk()
+                ->assertSee('Hattitriki FC · Liga de fútbol amistosa');
+        }
+    }
+
+    public function test_unknown_routes_and_invalid_identifiers_return_not_found(): void
+    {
+        $this->get('/ruta-que-no-existe')->assertNotFound();
+        $this->get('/partidos/no-es-hexadecimal')->assertNotFound();
+        $this->get('/mister/jugadores/no-es-hexadecimal')->assertNotFound();
     }
 
     public function test_security_headers_match_the_private_application_contract(): void
