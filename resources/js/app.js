@@ -479,7 +479,11 @@ function topbarTitle(route) {
 
 function pageHeader(title, subtitle = '', actions = '') {
     return `<header class="page-header">
-        <div class="page-header__copy"><h1 class="page-title">${esc(title)}</h1>${subtitle ? `<p class="page-subtitle">${esc(subtitle)}</p>` : ''}</div>
+        <div class="page-header__copy">
+            <span class="page-kicker">HATTITRIKI · LIGA GENUINE</span>
+            <h1 class="page-title">${esc(title)}</h1>
+            ${subtitle ? `<p class="page-subtitle">${esc(subtitle)}</p>` : ''}
+        </div>
         ${actions}
     </header>`;
 }
@@ -543,17 +547,38 @@ function renderAuth() {
 
     const flow = mode !== 'login';
     root.innerHTML = `<main class="auth-stage${flow ? ' auth-stage--flow' : ''}" aria-label="Acceso a Hattitriki">
-        <section class="auth-card${flow ? ' auth-card--flow' : ''}">
-            <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
-            <h1>${esc(title)}</h1>
-            <p class="auth-description">${esc(description)}</p>
-            <form id="auth-form" class="auth-form" data-mode="${esc(mode)}" novalidate>
-                ${fields}
-                ${state.authError ? `<div class="auth-message" role="alert">${esc(state.authError)}</div>` : ''}
-                <button class="btn btn--wide" type="submit" ${(state.authBusy || mode === 'login' || mode === 'forgot') ? 'disabled' : ''}>${esc(submit)}</button>
-            </form>
-            ${secondary}
-        </section>
+        <div class="auth-layout">
+            <section class="auth-intro" aria-label="Hattitriki Liga Genuine">
+                <div class="auth-intro__brand">
+                    <img src="/hattitriki-app-icon.png" alt="">
+                    <span><strong>HATTITRIKI FC</strong><small>LIGA GENUINE</small></span>
+                </div>
+                <div class="auth-intro__copy">
+                    <span class="auth-intro__kicker">EL FÚTBOL DE LOS JUEVES</span>
+                    <h2>Tu liga.<br>Todos los números.</h2>
+                    <p>Resultados, actas, rachas y rankings del grupo en un mismo vestuario digital.</p>
+                </div>
+                <div class="auth-match-preview" aria-hidden="true">
+                    <span class="auth-match-preview__status"><i></i> LIGA PRIVADA</span>
+                    <div><span class="team-mark">A</span><strong>HATTITRIKI</strong><b>VS</b><strong>GENUINE</strong><span class="team-mark team-mark--gold">B</span></div>
+                    <small>RESULTADOS · ESTADÍSTICAS · ACTAS</small>
+                </div>
+            </section>
+            <section class="auth-card${flow ? ' auth-card--flow' : ''}">
+                <div class="auth-card__heading">
+                    <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
+                    <span class="auth-card__kicker">${flow ? 'ACCESO SEGURO' : 'ÁREA DE MIEMBROS'}</span>
+                    <h1>${esc(title)}</h1>
+                    <p class="auth-description">${esc(description)}</p>
+                </div>
+                <form id="auth-form" class="auth-form" data-mode="${esc(mode)}" novalidate>
+                    ${fields}
+                    ${state.authError ? `<div class="auth-message" role="alert">${esc(state.authError)}</div>` : ''}
+                    <button class="btn btn--wide" type="submit" ${(state.authBusy || mode === 'login' || mode === 'forgot') ? 'disabled' : ''}>${esc(submit)}</button>
+                </form>
+                ${secondary}
+            </section>
+        </div>
     </main>`;
 }
 
@@ -589,11 +614,25 @@ function renderHome() {
 
     return `<section class="page home-page">
         ${pageHeader('Liga Genuine', 'Resultados, rachas y campeones de la liga Genuine.')}
+        <section class="league-overview" aria-label="Resumen de la competición">
+            <div class="league-overview__identity">
+                <img src="/hattitriki-app-icon.png" alt="">
+                <span><small>COMPETICIÓN</small><strong>Liga Genuine</strong></span>
+            </div>
+            <div class="league-overview__stat"><small>PARTIDOS</small><strong>${state.snapshot.matches.length}</strong></div>
+            <div class="league-overview__stat"><small>GOLES</small><strong>${totalGoals}</strong></div>
+            <div class="league-overview__status"><i></i><span>Temporada activa</span></div>
+        </section>
         <section>
             ${latest ? `<a class="card card--highlight card--clickable hero-score" href="#/partidos/${toHex(latest.id)}">
-                <div class="hero-score__meta"><span class="eyebrow">ÚLTIMO RESULTADO</span><span class="hero-score__date">${esc(formatDate(latest.playedOn))}</span></div>
-                <div class="score-line"><span class="team-name">Equipo A</span><strong class="score-pill">${latest.teamAScore} - ${latest.teamBScore}</strong><span class="team-name">Equipo B</span></div>
+                <div class="hero-score__meta"><span class="eyebrow"><i class="live-dot"></i> ÚLTIMO RESULTADO</span><span class="hero-score__date">${esc(formatDate(latest.playedOn))} · FINAL</span></div>
+                <div class="score-line">
+                    <span class="team-name"><i class="team-mark">A</i><b>Equipo A</b></span>
+                    <strong class="score-pill">${latest.teamAScore} <small>—</small> ${latest.teamBScore}</strong>
+                    <span class="team-name"><b>Equipo B</b><i class="team-mark team-mark--gold">B</i></span>
+                </div>
                 ${latest.teamAPenaltyScore != null ? `<div class="penalty-line">${latest.teamAPenaltyScore} - ${latest.teamBPenaltyScore} en penaltis</div>` : ''}
+                <span class="hero-score__cta">Ver acta completa <b>→</b></span>
             </a>` : `<div class="card">${stateView('empty', 'Aún no hay resultados', 'Cuando se guarde el primer partido aparecerá aquí.')}</div>`}
         </section>
         <section class="home-season">
@@ -686,7 +725,7 @@ function renderHistory() {
 function renderMatchRow(match) {
     return `<a class="card card--clickable match-row" href="#/partidos/${toHex(match.id)}" aria-label="Abrir partido del ${esc(formatDate(match.playedOn))}, ${match.teamAScore} a ${match.teamBScore}">
         <span class="match-row__meta"><span class="match-row__date">${esc(formatDate(match.playedOn))}</span><span class="match-row__final">FINAL</span></span>
-        <span class="match-row__score"><span class="match-row__team">Equipo A</span><strong class="score-pill">${match.teamAScore} - ${match.teamBScore}</strong><span class="match-row__team">Equipo B</span></span>
+        <span class="match-row__score"><span class="match-row__team"><i class="team-mark">A</i>Equipo A</span><strong class="score-pill">${match.teamAScore} - ${match.teamBScore}</strong><span class="match-row__team">Equipo B<i class="team-mark team-mark--gold">B</i></span></span>
         <span class="match-row__penalties">${match.teamAPenaltyScore != null ? `${match.teamAPenaltyScore} - ${match.teamBPenaltyScore} en penaltis` : '&nbsp;'}</span>
     </a>`;
 }
