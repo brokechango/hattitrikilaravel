@@ -57,14 +57,14 @@ jobs:
       - name: Check PHP formatting
         run: vendor/bin/pint --test
 
+      - name: Build Vite assets
+        run: npm run build
+
       - name: Run PHP tests
         run: composer test
 
       - name: Run JavaScript tests
         run: npm test
-
-      - name: Build Vite assets
-        run: npm run build
 
       - name: Validate production configuration
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
