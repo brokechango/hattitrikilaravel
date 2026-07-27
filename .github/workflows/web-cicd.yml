@@ -64,6 +64,8 @@ jobs:
         run: composer test
 
       - name: Run JavaScript tests
+        env:
+          LARAVEL_BYPASS_ENV_CHECK: "1"
         run: npm test
 
       - name: Validate production configuration
