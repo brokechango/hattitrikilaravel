@@ -20,6 +20,7 @@
     --error-container: #93000a;
     --shadow: 0 18px 50px rgb(1 8 18 / 32%);
     --content-max: 1120px;
+    --app-shell-background: #050e1b;
     --font-display: "Bahnschrift Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
     --font-ui: "Aptos", "Segoe UI Variable", "Segoe UI", sans-serif;
     font-family: var(--font-ui);
@@ -1106,14 +1107,20 @@ noscript {
     -webkit-touch-callout: none;
 }
 
-.stat-card--dragging {
+.card--clickable.stat-card--dragging {
     cursor: grabbing;
     z-index: 5;
     border-color: rgb(242 190 62 / 72%);
     box-shadow: 0 18px 34px rgb(0 0 0 / 38%), 0 0 0 2px rgb(242 190 62 / 24%);
     pointer-events: none;
-    transform: translate3d(var(--drag-x, 0), var(--drag-y, 0), 0) rotate(-1.2deg) scale(1.045);
-    transition: box-shadow 180ms ease, border-color 180ms ease;
+    rotate: -1.2deg;
+    scale: 1.045;
+    transform: translate3d(var(--drag-x, 0), var(--drag-y, 0), 0);
+    transition:
+        box-shadow 180ms ease,
+        border-color 180ms ease,
+        rotate 180ms ease,
+        scale 180ms ease;
 }
 
 .stats-grid--reordering .stat-card:not(.stat-card--dragging) {
@@ -1127,10 +1134,12 @@ noscript {
 
 @keyframes stat-card-ready {
     from {
-        transform: translate3d(-1px, 0, 0) rotate(-.35deg);
+        translate: -1px 0;
+        rotate: -.35deg;
     }
     to {
-        transform: translate3d(1px, 0, 0) rotate(.35deg);
+        translate: 1px 0;
+        rotate: .35deg;
     }
 }
 
@@ -4206,7 +4215,7 @@ body {
 /* Shell and navigation */
 .app-shell {
     grid-template-rows: 72px minmax(0, 1fr);
-    background: #050e1b;
+    background: var(--app-shell-background);
 }
 
 .topbar {
