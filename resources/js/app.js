@@ -10,6 +10,7 @@ import {
 } from './football';
 import { formatFlooredTotal } from './formatters';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
+import { captureStatCardPointer, movedBeyondPressTolerance } from './stat-card-gesture';
 
 const root = document.querySelector('#app');
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
@@ -2550,7 +2551,7 @@ root.addEventListener('pointerdown', (event) => {
         grid,
         timer: 0,
     };
-    grid.setPointerCapture?.(event.pointerId);
+    captureStatCardPointer(card, event.pointerId);
     reorder.timer = window.setTimeout(() => activateStatReorder(reorder), STAT_LONG_PRESS_DELAY);
     state.statReorder = reorder;
 });
@@ -2566,7 +2567,15 @@ root.addEventListener('pointermove', (event) => {
     const deltaY = event.clientY - reorder.originY;
 
     if (!reorder.active) {
-        if (Math.hypot(deltaX, deltaY) > STAT_PRESS_MOVE_TOLERANCE) cancelPendingStatReorder();
+        if (movedBeyondPressTolerance(
+            reorder.originX,
+            reorder.originY,
+            event.clientX,
+            event.clientY,
+            STAT_PRESS_MOVE_TOLERANCE,
+        )) {
+            cancelPendingStatReorder();
+        }
         return;
     }
 
