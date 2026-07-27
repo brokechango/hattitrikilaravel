@@ -13,6 +13,9 @@ import { normalizeSeasons, resolveSeasonId } from './seasons';
 
 const root = document.querySelector('#app');
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
+const AUTH_BOOT_TIMEOUT_MS = 10_000;
+const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
+const AUTH_BOOT_RESET_KEY = 'hattitriki-auth-boot-reset';
 const authCallback = new URLSearchParams(location.hash.replace(/^#/, ''));
 const callbackType = authCallback.get('type');
 const legacyRoute = location.hash.startsWith('#/') ? location.hash.slice(1) : null;
@@ -205,8 +208,41 @@ function errorMessage(error, fallback = 'Ha ocurrido un error. Inténtalo de nue
     if (text.includes('email not confirmed')) return 'Confirma tu correo antes de iniciar sesión.';
     if (text.includes('jwt') || text.includes('permission') || text.includes('42501')) return 'Tu sesión ya no tiene permisos para realizar esta acción.';
     if (text.includes('duplicate') || text.includes('23505')) return 'Ya existe un registro con esos datos.';
+    if (text.includes('auth_boot_timeout')) return 'Supabase está tardando demasiado en restaurar la sesión. Usa “Limpiar sesión y reintentar” si el problema continúa.';
+    if (text.includes('timeout') || text.includes('abort')) return 'Supabase está tardando demasiado en responder. Inténtalo de nuevo.';
     if (text.includes('failed to fetch') || text.includes('network')) return 'No se ha podido conectar con Supabase. Comprueba tu conexión e inténtalo de nuevo.';
     return fallback;
+}
+
+async function withTimeout(promise, timeoutMs, timeoutCode) {
+    let timeoutId;
+
+    try {
+        return await Promise.race([
+            promise,
+            new Promise((resolve, reject) => {
+                timeoutId = window.setTimeout(() => reject(new Error(timeoutCode)), timeoutMs);
+            }),
+        ]);
+    } finally {
+        window.clearTimeout(timeoutId);
+    }
+}
+
+function clearPersistedAuthSession() {
+    let projectReference = '';
+
+    try {
+        projectReference = new URL(config.supabaseUrl).hostname.split('.')[0] || '';
+    } catch {
+        return;
+    }
+
+    if (!projectReference) return;
+
+    const storageKey = `sb-${projectReference}-auth-token`;
+    window.sessionStorage.removeItem(storageKey);
+    window.sessionStorage.removeItem(`${storageKey}-code-verifier`);
 }
 
 function kotlinStringHash(value) {
@@ -257,7 +293,11 @@ function saveHistoryPreferences() {
 }
 
 async function rpc(name, params) {
-    const { data, error } = await state.client.rpc(name, params);
+    const { data, error } = await withTimeout(
+        state.client.rpc(name, params),
+        SUPABASE_REQUEST_TIMEOUT_MS,
+        'SUPABASE_RPC_TIMEOUT',
+    );
     if (error) throw error;
     return data;
 }
@@ -1278,7 +1318,35 @@ async function initialize() {
             flowType: 'implicit',
         },
     });
-    const { data: { session } } = await state.client.auth.getSession();
+    let session;
+
+    try {
+        const response = await withTimeout(
+            state.client.auth.getSession(),
+            AUTH_BOOT_TIMEOUT_MS,
+            'AUTH_BOOT_TIMEOUT',
+        );
+        session = response.data.session;
+    } catch (error) {
+        if (error?.message === 'AUTH_BOOT_TIMEOUT') {
+            clearPersistedAuthSession();
+
+            if (window.sessionStorage.getItem(AUTH_BOOT_RESET_KEY) !== '1') {
+                window.sessionStorage.setItem(AUTH_BOOT_RESET_KEY, '1');
+                window.location.reload();
+                return;
+            }
+
+            state.loading = false;
+            state.authError = errorMessage(error);
+            renderAuth();
+            return;
+        }
+
+        throw error;
+    }
+
+    window.sessionStorage.removeItem(AUTH_BOOT_RESET_KEY);
     state.session = session;
     state.client.auth.onAuthStateChange((event, nextSession) => {
         state.session = nextSession;

@@ -14,6 +14,7 @@
     <link rel="icon" href="/hattitriki-app-icon.png" type="image/png">
     <link rel="apple-touch-icon" href="/hattitriki-app-icon.png">
     <link rel="preload" href="/hattitriki-app-icon.png" as="image" fetchpriority="high">
+    <script src="/boot-guard.js"></script>
     <script src="/config.js"></script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
@@ -22,7 +23,7 @@
     <noscript>Hattitriki necesita JavaScript para funcionar.</noscript>
     <div id="app" aria-live="polite">
         <main class="auth-stage" aria-busy="true" aria-label="Acceso a Hattitriki">
-            <section class="auth-card auth-card--loading">
+            <section class="auth-card auth-card--loading" data-boot-loader>
                 <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
                 <h1>HATTITRIKI FC</h1>
                 <p>Preparando el acceso a la liga…</p>

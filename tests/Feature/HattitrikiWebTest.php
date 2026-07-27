@@ -34,6 +34,7 @@ final class HattitrikiWebTest extends TestCase
             ->assertSee('Acceso a Hattitriki')
             ->assertSee('bouncing-ball-loader', false)
             ->assertSee('⚽')
+            ->assertSee('/boot-guard.js', false)
             ->assertSee('/config.js', false)
             ->assertSee('/hattitriki-app-icon.png', false);
     }
@@ -84,13 +85,19 @@ final class HattitrikiWebTest extends TestCase
     public function test_runtime_configuration_and_crest_are_available(): void
     {
         $configurationPath = public_path('config.js');
+        $bootGuardPath = public_path('boot-guard.js');
         $crestPath = public_path('hattitriki-app-icon.png');
 
         $this->assertFileExists($configurationPath);
+        $this->assertFileExists($bootGuardPath);
         $this->assertFileExists($crestPath);
         $this->assertStringContainsString(
             'HATTITRIKI_CONFIG',
             (string) file_get_contents($configurationPath),
+        );
+        $this->assertStringContainsString(
+            'data-boot-loader',
+            (string) file_get_contents($bootGuardPath),
         );
         $this->assertGreaterThan(100_000, filesize($crestPath));
     }
