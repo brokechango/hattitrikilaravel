@@ -8,6 +8,23 @@ use Tests\TestCase;
 
 final class HattitrikiWebTest extends TestCase
 {
+    public function test_www_host_redirects_to_the_canonical_domain(): void
+    {
+        config()->set('app.canonical_url', 'https://hattitrikifc.pro');
+
+        $this->get('https://www.hattitrikifc.pro/partidos?temporada=3')
+            ->assertPermanentRedirect('https://hattitrikifc.pro/partidos?temporada=3');
+    }
+
+    public function test_canonical_host_serves_the_application_without_redirecting(): void
+    {
+        config()->set('app.canonical_url', 'https://hattitrikifc.pro');
+
+        $this->get('https://hattitrikifc.pro/')
+            ->assertOk()
+            ->assertSee('HATTITRIKI FC');
+    }
+
     public function test_application_shell_is_served_in_spanish(): void
     {
         $this->get('/')

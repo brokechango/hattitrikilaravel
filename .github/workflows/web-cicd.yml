@@ -222,43 +222,95 @@ jobs:
         run: |
           test -n "$DEPLOYMENT_URL"
 
-          for origin in \
-            "$DEPLOYMENT_URL" \
-            "https://hattitrikifc.pro" \
-            "https://www.hattitrikifc.pro"
-          do
-            html="$(
+          check_origin() {
+            local origin="$1"
+            local html asset_type asset_path content_type
+
+            SMOKE_FAILURE=""
+
+            if ! html="$(
               curl --fail --location --silent --show-error \
-                --retry 5 --retry-all-errors "$origin"
-            )"
+                --connect-timeout 10 --max-time 30 \
+                --retry 2 --retry-all-errors \
+                "${origin%/}/?smoke=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            )"; then
+              SMOKE_FAILURE="The application document is unavailable."
+              return 1
+            fi
 
-            printf '%s' "$html" | grep -q 'HATTITRIKI FC'
+            if ! grep -Fq 'HATTITRIKI FC' <<< "$html"; then
+              SMOKE_FAILURE="The application marker is missing from the document."
+              return 1
+            fi
 
-            if printf '%s' "$html" | grep -E -q '(href|src)="https?://[^/"]+/build/assets/'; then
-              echo "Deployment at $origin contains hostname-bound Vite asset URLs."
-              exit 1
+            if grep -E -q '(href|src)="https?://[^/"]+/build/assets/' <<< "$html"; then
+              SMOKE_FAILURE="The document contains hostname-bound Vite asset URLs."
+              return 1
             fi
 
             for asset_type in js css
             do
               asset_path="$(
-                printf '%s' "$html" \
-                  | grep -oE "/build/assets/[^\"]+\\.${asset_type}" \
+                grep -oE "/build/assets/[^\"]+\\.${asset_type}" <<< "$html" \
                   | sed -n '1p'
               )"
 
-              test -n "$asset_path"
+              if [[ -z "$asset_path" ]]; then
+                SMOKE_FAILURE="No ${asset_type} asset was found in the document."
+                return 1
+              fi
 
-              headers="$(
+              if ! content_type="$(
                 curl --fail --location --silent --show-error \
-                  --retry 5 --retry-all-errors --head \
+                  --connect-timeout 10 --max-time 30 \
+                  --retry 2 --retry-all-errors \
+                  --output /dev/null --write-out '%{content_type}' \
                   "${origin%/}${asset_path}"
-              )"
+              )"; then
+                SMOKE_FAILURE="The ${asset_type} asset ${asset_path} is unavailable."
+                return 1
+              fi
 
-              if [[ "$asset_type" == "css" ]]; then
-                printf '%s' "$headers" | grep -E -i -q '^content-type: text/css'
-              else
-                printf '%s' "$headers" | grep -E -i -q '^content-type: (application|text)/javascript'
+              content_type="${content_type,,}"
+              if [[ "$asset_type" == "css" && "$content_type" != text/css* ]]; then
+                SMOKE_FAILURE="The CSS asset returned Content-Type '${content_type:-missing}'."
+                return 1
+              fi
+
+              if [[ "$asset_type" == "js" \
+                && "$content_type" != application/javascript* \
+                && "$content_type" != text/javascript* ]]; then
+                SMOKE_FAILURE="The JavaScript asset returned Content-Type '${content_type:-missing}'."
+                return 1
               fi
             done
+          }
+
+          for origin in \
+            "$DEPLOYMENT_URL" \
+            "https://hattitrikifc.pro" \
+            "https://www.hattitrikifc.pro"
+          do
+            smoke_passed=false
+
+            for attempt in {1..12}
+            do
+              echo "Smoke testing ${origin} (attempt ${attempt}/12)..."
+
+              if check_origin "$origin"; then
+                smoke_passed=true
+                echo "::notice title=Smoke test passed::${origin} passed on attempt ${attempt}."
+                break
+              fi
+
+              echo "Attempt ${attempt}/12 failed for ${origin}: ${SMOKE_FAILURE}"
+              if (( attempt < 12 )); then
+                sleep 5
+              fi
+            done
+
+            if [[ "$smoke_passed" != "true" ]]; then
+              echo "::error title=Smoke test failed::${origin} did not become healthy after 12 attempts. ${SMOKE_FAILURE}"
+              exit 1
+            fi
           done

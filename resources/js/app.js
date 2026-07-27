@@ -762,7 +762,7 @@ function renderHome() {
             <p class="home-drag-help" id="home-drag-help">Mantén pulsada una tarjeta y arrástrala para cambiar su posición.</p>
             <div class="stats-grid">
                 ${featured.map(([symbol, label, item, value, detail, category]) => `<button class="card card--clickable stat-card" type="button" draggable="false" data-action="open-ranking" data-category="${category}" data-stat-key="${category}" aria-describedby="home-drag-help">
-                    ${state.avatars[item.player.id] ? `<img class="stat-card__avatar" src="${esc(state.avatars[item.player.id])}" alt="">` : ''}
+                    ${state.avatars[item.player.id] ? `<img class="stat-card__avatar" src="${esc(state.avatars[item.player.id])}" alt="" draggable="false">` : ''}
                     <span class="stat-card__accent" aria-hidden="true"></span>
                     <span class="stat-card__content">
                         <span class="stat-card__header"><span class="stat-card__label">${esc(label)}</span><span class="stat-card__icon">${symbol}</span></span>
@@ -2482,9 +2482,13 @@ root.addEventListener('pointerdown', (event) => {
         grid,
         timer: 0,
     };
-    card.setPointerCapture?.(event.pointerId);
+    grid.setPointerCapture?.(event.pointerId);
     reorder.timer = window.setTimeout(() => activateStatReorder(reorder), STAT_LONG_PRESS_DELAY);
     state.statReorder = reorder;
+});
+
+root.addEventListener('contextmenu', (event) => {
+    if (event.target.closest('[data-stat-key]')) event.preventDefault();
 });
 
 root.addEventListener('pointermove', (event) => {

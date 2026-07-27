@@ -1102,7 +1102,7 @@ noscript {
     height: 148px;
     padding: 0;
     cursor: grab;
-    touch-action: pan-y;
+    touch-action: none;
     user-select: none;
     -webkit-touch-callout: none;
 }
@@ -1150,6 +1150,10 @@ noscript {
     height: 100%;
     opacity: .18;
     object-fit: cover;
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-drag: none;
+    -webkit-touch-callout: none;
 }
 
 .stat-card__accent {
