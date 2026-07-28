@@ -15,6 +15,13 @@ import {
     resolveMvpVotingAccess,
 } from './mvp-voting';
 import {
+    MOTION_BASE_DURATION_MS,
+    MOTION_EXIT_DURATION_MS,
+    motionDelay,
+    prefersReducedMotion,
+    shouldAnimateRoute,
+} from './motion';
+import {
     canStartPullRefresh,
     PULL_REFRESH_THRESHOLD,
     resolvePullGesture,
@@ -35,6 +42,10 @@ import {
 const root = document.querySelector('#app');
 let pullRefreshBusy = false;
 let pullRefreshGesture = null;
+let lastRenderedRoute = null;
+let authMotionPending = false;
+let matchStepMotionPending = false;
+let rankingMotionPending = false;
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const AUTH_BOOT_TIMEOUT_MS = 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
@@ -85,6 +96,7 @@ const state = {
     mvpBusy: false,
     profileDetails: {},
     menuOpen: false,
+    menuClosing: false,
     snackbar: null,
     rankingCategory: 'top-scorer',
     rankingView: 'compact',
@@ -112,6 +124,7 @@ const state = {
     matchStep: 1,
     randomizer: null,
     randomizerResult: null,
+    selectionMotion: null,
     dialog: null,
     unsaved: false,
     lastPath: location.pathname,
@@ -218,14 +231,54 @@ function isAdmin() {
     return state.access?.role?.toLowerCase() === 'admin';
 }
 
+function waitForMotion(durationMs = MOTION_EXIT_DURATION_MS) {
+    return new Promise((resolve) => {
+        window.setTimeout(resolve, motionDelay(durationMs));
+    });
+}
+
 function showSnackbar(message, error = false) {
-    state.snackbar = { message, error };
+    window.clearTimeout(showSnackbar.dismissTimer);
+    window.clearTimeout(showSnackbar.removeTimer);
+    state.snackbar = { message, error, closing: false };
     render();
-    window.clearTimeout(showSnackbar.timer);
-    showSnackbar.timer = window.setTimeout(() => {
-        state.snackbar = null;
+
+    showSnackbar.dismissTimer = window.setTimeout(() => {
+        if (!state.snackbar) return;
+        if (prefersReducedMotion()) {
+            state.snackbar = null;
+            render();
+            return;
+        }
+
+        state.snackbar = { ...state.snackbar, closing: true };
         render();
-    }, 3800);
+        showSnackbar.removeTimer = window.setTimeout(() => {
+            state.snackbar = null;
+            render();
+        }, MOTION_EXIT_DURATION_MS);
+    }, 3800 - MOTION_EXIT_DURATION_MS);
+}
+
+async function closeAccountMenu() {
+    if (!state.menuOpen || state.menuClosing) return;
+    state.menuClosing = true;
+    render();
+    await waitForMotion();
+    state.menuOpen = false;
+    state.menuClosing = false;
+    render();
+}
+
+async function closeDialog() {
+    if (!state.dialog || state.dialog.closing) return;
+    if (!prefersReducedMotion()) {
+        state.dialog = { ...state.dialog, closing: true };
+        render();
+        await waitForMotion();
+    }
+    state.dialog = null;
+    render();
 }
 
 function errorMessage(error, fallback = 'Ha ocurrido un error. Inténtalo de nuevo.') {
@@ -606,7 +659,7 @@ function shell(content, options = {}) {
     if (isAdmin()) primary.push(['/mister', 'manager', 'Míster', 'manager']);
 
     const navigation = primary.map(([path, tab, label, iconName]) => navLink(path, tab, label, iconName)).join('');
-    return `<div class="app-shell">
+    return `<div class="app-shell${options.routeMotion ? ' app-shell--route-enter' : ''}">
         <header class="topbar">
             <div class="topbar__inner">
                 <div class="topbar__compact-leading">
@@ -624,8 +677,8 @@ function shell(content, options = {}) {
                 <nav class="topbar__desktop-nav" aria-label="Navegación principal">${navigation}</nav>
                 <span class="topbar__spacer"></span>
                 <div class="account-menu">
-                    <button class="topbar__menu" type="button" data-action="toggle-account" aria-expanded="${state.menuOpen}">Menú</button>
-                    ${state.menuOpen ? `<div class="account-popover">
+                    <button class="topbar__menu" type="button" data-action="toggle-account" aria-expanded="${state.menuOpen && !state.menuClosing}">Menú</button>
+                    ${(state.menuOpen || state.menuClosing) ? `<div class="account-popover${state.menuClosing ? ' account-popover--closing' : ''}">
                         <button class="menu-action" type="button" data-action="logout">Cerrar sesión</button>
                     </div>` : ''}
                 </div>
@@ -638,11 +691,11 @@ function shell(content, options = {}) {
                     <span class="pull-refresh-indicator__icon" aria-hidden="true">${icon('refresh')}</span>
                     <span class="pull-refresh-indicator__label">Desliza para actualizar</span>
                 </div>
-                <div class="pull-refresh-content">${content}</div>
+                <div class="pull-refresh-content${options.routeMotion ? ' pull-refresh-content--route-enter' : ''}">${content}</div>
             </main>
         </div>
         <nav class="bottom-nav" aria-label="Navegación principal">${primary.map(([path, tab, label, iconName]) => navLink(path, tab, label, iconName)).join('')}</nav>
-        ${state.snackbar ? `<div class="snackbar${state.snackbar.error ? ' snackbar--error' : ''}" role="status">${esc(state.snackbar.message)}</div>` : ''}
+        ${state.snackbar ? `<div class="snackbar${state.snackbar.error ? ' snackbar--error' : ''}${state.snackbar.closing ? ' snackbar--closing' : ''}" role="status">${esc(state.snackbar.message)}</div>` : ''}
         ${state.dialog ? renderDialog() : ''}
     </div>`;
 }
@@ -698,6 +751,9 @@ function pageLoading(title) {
 }
 
 function renderAuth() {
+    lastRenderedRoute = null;
+    const animateAuth = authMotionPending && !prefersReducedMotion();
+    authMotionPending = false;
     const mode = state.authMode;
     let title = 'HATTITRIKI FC';
     let description = 'Acceso privado para miembros de la liga';
@@ -761,7 +817,7 @@ function renderAuth() {
                     <small>RESULTADOS · ESTADÍSTICAS · ACTAS</small>
                 </div>
             </section>
-            <section class="auth-card${flow ? ' auth-card--flow' : ''}">
+            <section class="auth-card${flow ? ' auth-card--flow' : ''}${animateAuth ? ' auth-card--motion-enter' : ''}">
                 <div class="auth-card__heading">
                     <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
                     <span class="auth-card__kicker">${flow ? 'ACCESO SEGURO' : 'ÁREA DE MIEMBROS'}</span>
@@ -958,6 +1014,9 @@ function renderMatchRow(match) {
 
 function renderRankings() {
     if (state.loading) return pageLoading('Rankings');
+    const animateResults = rankingMotionPending && !prefersReducedMotion();
+    rankingMotionPending = false;
+    const motionClass = animateResults ? ' ranking-content--motion-enter' : '';
     const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
     const entries = ranking(state.rankingCategory);
     const showRecentForm = state.rankingView === 'detailed';
@@ -968,7 +1027,7 @@ function renderRankings() {
     }).join('')}</div>`;
     return `<section class="page rankings-page">
         ${pageHeader('Rankings')}
-        <section class="card card--highlight ranking-summary">
+        <section class="card card--highlight ranking-summary${motionClass}">
             <span class="ranking-summary__icon">${RANKING_SYMBOLS[state.rankingCategory] || '⚽'}</span>
             <span class="ranking-summary__copy"><strong>${esc(definition.label)}</strong><small>${esc(definition.scopeLabel || 'CLASIFICACIÓN DE LA TEMPORADA')} · ${entries.length} JUGADORES</small></span>
             <button class="ranking-summary__info" type="button" data-action="ranking-info" aria-label="Información sobre ${esc(definition.label)}">i</button>
@@ -979,10 +1038,10 @@ function renderRankings() {
             <button class="chip" type="button" data-action="ranking-view" data-view="compact" aria-pressed="${state.rankingView === 'compact'}">Compacta</button>
             <button class="chip" type="button" data-action="ranking-view" data-view="detailed" aria-pressed="${state.rankingView === 'detailed'}">Detallada</button>
         </div>
-        ${entries.length ? `<div class="ranking-table">
+        ${entries.length ? `<div class="ranking-table${motionClass}">
             <div class="ranking-row ranking-row--head ${rankingRowClasses}"><span>#</span><span></span><span>JUGADOR</span>${definition.columns.map(([label]) => `<span class="ranking-metric">${esc(label)}</span>`).join('')}${showRecentForm ? '<span class="recent-form recent-form--head">RACHA</span>' : ''}</div>
             ${entries.map((entry, index) => renderRankingRow(entry, index, definition, rankingRowClasses)).join('')}
-        </div>` : `<div class="card">${stateView('empty', 'No hay jugadores para esta clasificación', 'Los datos aparecerán cuando existan partidos suficientes.')}</div>`}
+        </div>` : `<div class="card${motionClass}">${stateView('empty', 'No hay jugadores para esta clasificación', 'Los datos aparecerán cuando existan partidos suficientes.')}</div>`}
     </section>`;
 }
 
@@ -1295,8 +1354,10 @@ function restrictedPage() {
 
 function renderDialog() {
     const dialog = state.dialog;
+    const closingClass = dialog.closing ? ' dialog-backdrop--closing' : '';
+    const panelClosingClass = dialog.closing ? ' dialog--closing' : '';
     if (dialog.variant === 'ranking-info') {
-        return `<div class="dialog-backdrop dialog-backdrop--ranking-info" role="presentation"><section class="dialog dialog--ranking-info" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">
+        return `<div class="dialog-backdrop dialog-backdrop--ranking-info${closingClass}" role="presentation"><section class="dialog dialog--ranking-info${panelClosingClass}" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">
             <div class="ranking-dialog__accent" aria-hidden="true"></div>
             <header class="ranking-dialog__header">
                 <span class="ranking-dialog__symbol" aria-hidden="true">${esc(dialog.symbol || '⚽')}</span>
@@ -1318,7 +1379,7 @@ function renderDialog() {
             </div>
         </section></div>`;
     }
-    return `<div class="dialog-backdrop" role="presentation"><section class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+    return `<div class="dialog-backdrop${closingClass}" role="presentation"><section class="dialog${panelClosingClass}" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <h2 id="dialog-title">${esc(dialog.title)}</h2>${dialog.content || `<p>${esc(dialog.message)}</p>`}
         <div class="dialog__actions">${dialog.singleAction ? '' : `<button class="btn btn--text" data-action="dialog-cancel">${esc(dialog.cancelLabel || 'Cancelar')}</button>`}
         <button class="btn ${dialog.danger ? 'btn--danger' : ''}" data-action="dialog-confirm">${esc(dialog.confirmLabel || 'Aceptar')}</button></div>
@@ -1373,7 +1434,10 @@ function render() {
         navigate('/inicio', true);
         return;
     }
-    root.innerHTML = shell(page);
+    const routeMotion = shouldAnimateRoute(lastRenderedRoute, route);
+    root.innerHTML = shell(page, { routeMotion });
+    lastRenderedRoute = route;
+    state.selectionMotion = null;
 }
 
 async function initialize() {
@@ -1693,6 +1757,8 @@ function renderMatchForm(id = '') {
     const draft = state.matchDraft;
     if (draft.loading) return pageLoading(id ? 'Editar acta' : 'Nueva acta');
     if (draft.error) return `<section class="page">${pageHeader(id ? 'Editar acta' : 'Nueva acta')}<div class="card">${stateView('error', 'No se puede abrir el acta', draft.error, '<button class="btn" data-action="retry-match-draft">Reintentar</button>')}</div></section>`;
+    const animateStep = matchStepMotionPending && !prefersReducedMotion();
+    matchStepMotionPending = false;
     const assigned = Object.values(draft.assignments).filter((teams) => teams?.length).length;
     const complete = [
         hasValidMatchBasics(draft),
@@ -1708,7 +1774,7 @@ function renderMatchForm(id = '') {
             }).join('')}
         </nav>
         <form id="match-form" class="card form-card match-editor" data-id="${esc(id)}">
-            <div class="match-editor__body">
+            <div class="match-editor__body${animateStep ? ' match-editor__body--motion-enter' : ''}">
                 ${draft.draftLoaded ? '<div class="auth-message auth-success">Se han cargado los equipos guardados en el generador. <button class="btn btn--text btn--compact" type="button" data-action="discard-team-draft">Descartar borrador y vaciar equipos</button></div>' : ''}
                 ${state.matchStep === 1 ? renderMatchBasics(draft) : state.matchStep === 2 ? renderMatchTeams(draft) : renderMatchGoals(draft)}
             </div>
@@ -2041,7 +2107,8 @@ function renderRandomizer() {
                 </div>
                 ${randomizer.players.length ? `<div class="randomizer-player-grid">${randomizer.players.map((player) => {
                     const checked = randomizer.selected.has(player.id);
-                    return `<label class="randomizer-player${checked ? ' randomizer-player--selected' : ''}">
+                    const motionSelected = checked && state.selectionMotion?.type === 'randomizer' && state.selectionMotion.id === player.id;
+                    return `<label class="randomizer-player${checked ? ' randomizer-player--selected' : ''}${motionSelected ? ' randomizer-player--motion-selected' : ''}">
                         <input class="randomizer-player__input" type="checkbox" data-randomizer-player="${esc(player.id)}" ${checked ? 'checked' : ''}>
                         ${avatar({ id: player.id, name: player.name })}
                         <span class="randomizer-player__copy">
@@ -2310,15 +2377,19 @@ root.addEventListener('click', async (event) => {
     const target = event.target.closest('[data-action]');
     if (!target) {
         if (state.menuOpen && !event.target.closest('.account-menu')) {
-            state.menuOpen = false;
-            render();
+            await closeAccountMenu();
         }
         return;
     }
     const action = target.dataset.action;
     if (action === 'toggle-account') {
-        state.menuOpen = !state.menuOpen;
-        render();
+        if (state.menuOpen) {
+            await closeAccountMenu();
+        } else {
+            state.menuOpen = true;
+            state.menuClosing = false;
+            render();
+        }
     } else if (action === 'back') {
         if (state.unsaved) confirmDiscard(() => history.back());
         else history.back();
@@ -2338,12 +2409,14 @@ root.addEventListener('click', async (event) => {
             state.mvpVotingMatchId = null;
             state.authMode = 'login';
             state.menuOpen = false;
+            state.menuClosing = false;
             history.replaceState({}, '', location.pathname);
             renderAuth();
         }
     } else if (action === 'auth-mode') {
         state.authMode = target.dataset.mode;
         state.authError = '';
+        authMotionPending = true;
         renderAuth();
     } else if (action === 'discard-callback') {
         await state.client.auth.signOut({ scope: 'local' }).catch(() => {});
@@ -2366,10 +2439,12 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'ranking-category') {
         state.rankingCategory = target.dataset.category;
         saveRankingPreferences();
+        rankingMotionPending = true;
         render();
     } else if (action === 'ranking-view') {
         state.rankingView = target.dataset.view || (state.rankingView === 'compact' ? 'detailed' : 'compact');
         saveRankingPreferences();
+        rankingMotionPending = true;
         render();
     } else if (action === 'toggle-ranking-filters') {
         state.rankingFiltersVisible = !state.rankingFiltersVisible;
@@ -2510,12 +2585,10 @@ root.addEventListener('click', async (event) => {
         };
         render();
     } else if (action === 'dialog-cancel') {
-        state.dialog = null;
-        render();
+        await closeDialog();
     } else if (action === 'dialog-confirm') {
         const callback = state.dialog?.onConfirm;
-        state.dialog = null;
-        render();
+        await closeDialog();
         try {
             await callback?.();
         } catch (error) {
@@ -2543,6 +2616,7 @@ root.addEventListener('click', async (event) => {
             return;
         }
         state.matchStep = nextStep;
+        matchStepMotionPending = true;
         render();
     } else if (action === 'match-next') {
         collectMatchBasics(document.querySelector('#match-form'));
@@ -2556,9 +2630,11 @@ root.addEventListener('click', async (event) => {
             return;
         }
         state.matchStep = Math.min(3, state.matchStep + 1);
+        matchStepMotionPending = true;
         render();
     } else if (action === 'match-previous') {
         state.matchStep = Math.max(1, state.matchStep - 1);
+        matchStepMotionPending = true;
         render();
     } else if (action === 'add-goal') {
         state.matchDraft.goals.push({ playerId: '', team: 'A', count: 1, ownGoal: false });
@@ -2635,6 +2711,9 @@ root.addEventListener('change', async (event) => {
     } else if (target.matches('[data-randomizer-player]')) {
         if (target.checked) state.randomizer.selected.add(target.dataset.randomizerPlayer);
         else state.randomizer.selected.delete(target.dataset.randomizerPlayer);
+        state.selectionMotion = target.checked
+            ? { type: 'randomizer', id: target.dataset.randomizerPlayer }
+            : null;
         state.randomizer.teams = Math.min(
             state.randomizer.teams,
             Math.max(2, Math.min(MAX_RANDOMIZER_TEAMS, state.randomizer.selected.size)),
@@ -2870,8 +2949,7 @@ function previewStatReorder(reorder, desiredIndex) {
     reorder.card.style.setProperty('--drag-x', `${reorder.dragX + reorder.offsetX}px`);
     reorder.card.style.setProperty('--drag-y', `${reorder.dragY + reorder.offsetY}px`);
 
-    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!reduceMotion) {
+    if (!prefersReducedMotion()) {
         [...reorder.grid.querySelectorAll('[data-stat-key]')].forEach((card) => {
             if (card === reorder.card) return;
             const before = beforeRects.get(card);
@@ -2884,7 +2962,7 @@ function previewStatReorder(reorder, desiredIndex) {
                     { transform: `translate3d(${x}px, ${y}px, 0)` },
                     { transform: 'translate3d(0, 0, 0)' },
                 ],
-                { duration: 180, easing: 'cubic-bezier(.2, .8, .2, 1)' },
+                { duration: MOTION_BASE_DURATION_MS, easing: 'cubic-bezier(.2, .8, .2, 1)' },
             );
             if (animation) reorder.flipAnimations.push(animation);
         });
