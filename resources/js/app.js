@@ -19,6 +19,11 @@ import {
     PULL_REFRESH_THRESHOLD,
     resolvePullGesture,
 } from './pull-to-refresh';
+import {
+    availableRandomizerTeamCounts,
+    MAX_RANDOMIZER_TEAMS,
+    resolveRandomizerSetup,
+} from './randomizer-ui';
 import { normalizeSeasons, resolveSeasonId } from './seasons';
 import {
     captureStatCardPointer,
@@ -1996,7 +2001,7 @@ async function refreshRandomizerPlayers() {
     };
     state.randomizer.teams = Math.min(
         state.randomizer.teams,
-        Math.max(2, state.randomizer.selected.size),
+        Math.max(2, Math.min(MAX_RANDOMIZER_TEAMS, state.randomizer.selected.size)),
     );
 }
 
@@ -2010,24 +2015,82 @@ function renderRandomizer() {
     if (randomizer.loading) return pageLoading('Generador de equipos');
     if (randomizer.error) return `<section class="page">${pageHeader('Generador de equipos')}<div class="card">${stateView('error', 'No se ha podido cargar la plantilla', randomizer.error, '<button class="btn" data-action="retry-randomizer">Volver a intentar</button>')}</div></section>`;
     const selected = randomizer.selected.size;
-    const perTeam = Math.floor(selected / randomizer.teams);
-    return `<section class="page stack stack--wide manager-page manager-page--tools">
-        ${pageHeader('Generador de equipos', 'Selecciona quién juega hoy y prepara un reparto equilibrado.')}
-        <section class="card card__body--large stack stack--wide manager-tool-panel">
-            <header class="manager-section-heading">
-                <div><span>Lista de hoy</span><h2 class="section-heading">Convocatoria</h2><p class="muted">Solo jugadores activos de la plantilla</p></div>
-                <div class="manager-section-heading__actions"><span class="status-badge">${selected} seleccionados</span>
-                    <button class="btn btn--text btn--compact" data-action="randomizer-select-all">Todos</button><button class="btn btn--text btn--compact" data-action="randomizer-select-none">Ninguno</button></div>
-            </header>
-            <div class="selection-grid">${randomizer.players.map((player) => `<label class="select-player"><input type="checkbox" data-randomizer-player="${esc(player.id)}" ${randomizer.selected.has(player.id) ? 'checked' : ''}><span class="ranking-name">${esc(player.name)}</span>${player.has_cardio ? '<span title="Buen cardio">⚡</span>' : ''}</label>`).join('')}</div>
-            <hr class="divider">
-            <div class="form-grid">
-                <div class="field"><span>Número de equipos</span><div class="counter"><button type="button" data-action="randomizer-decrease">−</button><output>${randomizer.teams}</output><button type="button" data-action="randomizer-increase">+</button></div></div>
-                <div class="switch-row"><div><strong>Equilibrar por rendimiento</strong><div class="muted">Compensa los puntos de forma de los últimos cinco partidos.</div></div><label class="switch"><input id="randomizer-balance" type="checkbox" ${randomizer.balanceStats ? 'checked' : ''}><span class="switch__track"></span></label></div>
-            </div>
-            <div class="randomizer-summary"><div class="summary-chip"><strong>${randomizer.teams}</strong>equipos</div><div class="summary-chip"><strong>${selected}</strong>jugadores</div><div class="summary-chip"><strong>${perTeam}${selected % randomizer.teams ? '–' + (perTeam + 1) : ''}</strong>por equipo</div></div>
-            <button class="btn btn--wide" type="button" data-action="randomizer-draw" ${selected < 2 || randomizer.teams > selected ? 'disabled' : ''}>${icon('shuffle')} Generar equipos</button>
-        </section>
+    const setup = resolveRandomizerSetup(selected, randomizer.teams);
+    const teamChoices = availableRandomizerTeamCounts();
+    const selectedCardio = randomizer.players
+        .filter((player) => randomizer.selected.has(player.id) && player.has_cardio)
+        .length;
+    return `<section class="page stack stack--wide manager-page manager-page--tools randomizer-page">
+        ${pageHeader('Generador de equipos', 'Prepara la convocatoria y define cómo quieres repartir a los jugadores.')}
+        <div class="randomizer-workspace">
+            <section class="card randomizer-roster">
+                <header class="randomizer-panel-header">
+                    <div>
+                        <span class="randomizer-panel-kicker">Paso 1 · Convocatoria</span>
+                        <h2>¿Quién juega hoy?</h2>
+                        <p>Selecciona a los jugadores disponibles para este partido.</p>
+                    </div>
+                    <strong class="randomizer-selection-count"><b>${selected}</b> / ${randomizer.players.length}</strong>
+                </header>
+                <div class="randomizer-roster-actions">
+                    <span>${selectedCardio} con buen cardio</span>
+                    <div>
+                        <button class="btn btn--text btn--compact" type="button" data-action="randomizer-select-all">Seleccionar todos</button>
+                        <button class="btn btn--text btn--compact" type="button" data-action="randomizer-select-none" ${selected ? '' : 'disabled'}>Limpiar</button>
+                    </div>
+                </div>
+                ${randomizer.players.length ? `<div class="randomizer-player-grid">${randomizer.players.map((player) => {
+                    const checked = randomizer.selected.has(player.id);
+                    return `<label class="randomizer-player${checked ? ' randomizer-player--selected' : ''}">
+                        <input class="randomizer-player__input" type="checkbox" data-randomizer-player="${esc(player.id)}" ${checked ? 'checked' : ''}>
+                        ${avatar({ id: player.id, name: player.name })}
+                        <span class="randomizer-player__copy">
+                            <strong>${esc(player.name)}</strong>
+                            <small>${player.has_cardio ? 'Buen cardio' : 'Jugador disponible'}</small>
+                        </span>
+                        ${player.has_cardio ? '<span class="randomizer-player__cardio" title="Buen cardio">⚡</span>' : ''}
+                        <span class="randomizer-player__check" aria-hidden="true">${checked ? '✓' : ''}</span>
+                    </label>`;
+                }).join('')}</div>` : `<div class="randomizer-empty">
+                    <span aria-hidden="true">${icon('profile')}</span>
+                    <strong>No hay jugadores activos</strong>
+                    <p>Añade o activa jugadores antes de preparar los equipos.</p>
+                    <a class="btn btn--outline" href="/mister/jugadores">Gestionar plantilla</a>
+                </div>`}
+            </section>
+            <aside class="card randomizer-setup">
+                <header class="randomizer-panel-header">
+                    <div>
+                        <span class="randomizer-panel-kicker">Paso 2 · Configuración</span>
+                        <h2>Prepara el reparto</h2>
+                        <p>Elige cuántos equipos necesitas y el criterio de equilibrio.</p>
+                    </div>
+                </header>
+                <section class="randomizer-setting">
+                    <div class="randomizer-setting__heading">
+                        <div><strong>Número de equipos</strong><small>Máximo seis equipos</small></div>
+                        <output aria-live="polite">${setup.teams}</output>
+                    </div>
+                    <div class="randomizer-team-options" role="group" aria-label="Número de equipos">
+                        ${teamChoices.map((teamCount) => `<button class="randomizer-team-option${setup.teams === teamCount ? ' randomizer-team-option--active' : ''}" type="button" data-action="randomizer-set-teams" data-teams="${teamCount}" aria-pressed="${setup.teams === teamCount}" ${teamCount > selected ? 'disabled' : ''}>${teamCount}</button>`).join('')}
+                    </div>
+                </section>
+                <section class="randomizer-setting randomizer-balance-setting">
+                    <div>
+                        <strong>Equilibrar por rendimiento</strong>
+                        <small>Usa la forma de los últimos cinco partidos además del cardio.</small>
+                    </div>
+                    <label class="switch"><input id="randomizer-balance" type="checkbox" aria-label="Equilibrar por rendimiento" ${randomizer.balanceStats ? 'checked' : ''}><span class="switch__track"></span></label>
+                </section>
+                <section class="randomizer-preview" aria-label="Resumen del reparto">
+                    <div><span>Equipos</span><strong>${setup.teams}</strong></div>
+                    <div><span>Jugadores</span><strong>${selected}</strong></div>
+                    <div><span>Por equipo</span><strong>${setup.perTeamLabel}</strong></div>
+                </section>
+                <p class="randomizer-guidance${setup.canGenerate ? '' : ' randomizer-guidance--warning'}" aria-live="polite"><span aria-hidden="true">${setup.canGenerate ? '✓' : '!'}</span>${esc(setup.message)}</p>
+                <button class="btn btn--wide randomizer-generate" type="button" data-action="randomizer-draw" ${setup.canGenerate ? '' : 'disabled'}>${icon('shuffle')} Generar ${setup.teams} equipos</button>
+            </aside>
+        </div>
     </section>`;
 }
 
@@ -2052,12 +2115,44 @@ function renderRandomizerResult() {
     if (!state.randomizerResult) return `<section class="page">${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}<div class="card">${stateView('empty', 'No hay un sorteo activo', 'Vuelve al generador para elegir la convocatoria.', '<a class="btn" href="/mister/equipos">Volver al generador</a>')}</div></section>`;
     const teams = state.randomizerResult;
     const names = ['A', 'B', 'C', 'D', 'E', 'F'];
-    return `<section class="page stack stack--wide manager-page manager-page--tools">
-        ${pageHeader('Equipos listos', 'Revisa el reparto antes de preparar el próximo partido.')}
-        <div class="randomizer-summary"><div class="summary-chip"><strong>${teams.length}</strong>equipos</div><div class="summary-chip"><strong>${teams.flat().length}</strong>jugadores</div><div class="summary-chip"><strong>${Math.floor(teams.flat().length / teams.length)}–${Math.ceil(teams.flat().length / teams.length)}</strong>por equipo</div></div>
-        <div class="team-grid">${teams.map((team, index) => `<section class="card generated-team"><h2 class="generated-team__title">Equipo ${names[index]} ${state.randomizer?.balanceStats ? `<span class="status-badge">${formatSignedDecimal(team.reduce((sum, player) => sum + (player.statsScore || 0), 0))} puntos</span>` : ''}</h2>${team.map((player) => `<div class="player-line">${avatar({ id: player.id, name: player.name })}<span class="player-line__name">${esc(player.name)}</span>${player.has_cardio ? '⚡' : ''}</div>`).join('')}</section>`).join('')}</div>
-        <div class="card card__body manager-result-note"><span class="manager-form__icon" aria-hidden="true">${icon('info')}</span><div><h2 class="section-heading">¿Te encaja el reparto?</h2><p class="muted">${teams.length === 2 ? 'Puedes repetir el sorteo o guardar los equipos A y B.' : 'Puedes repetir el sorteo. Para crear un acta necesitas exactamente 2 equipos.'}</p></div></div>
-        <div class="inline inline--end manager-result-actions"><button class="btn btn--outline" data-action="randomizer-redraw">${icon('shuffle')} Volver a sortear</button>${teams.length === 2 ? `<button class="btn btn--outline" data-action="randomizer-save">Guardar para el próximo partido</button><button class="btn" data-action="randomizer-create-record">${icon('plus')} Crear acta con estos equipos</button>` : ''}</div>
+    const totalPlayers = teams.flat().length;
+    const setup = resolveRandomizerSetup(totalPlayers, teams.length);
+    return `<section class="page stack stack--wide manager-page manager-page--tools randomizer-result-page">
+        ${pageHeader('Equipos listos', 'Revisa el reparto y decide si quieres usarlo para el próximo partido.', `<a class="btn btn--outline btn--compact" href="/mister/equipos">Editar convocatoria</a>`)}
+        <section class="card randomizer-result-hero">
+            <span class="randomizer-result-hero__icon" aria-hidden="true">${icon('shuffle')}</span>
+            <div><span>REPARTO COMPLETADO</span><h2>${teams.length} equipos preparados</h2><p>${state.randomizer?.balanceStats ? 'Se ha tenido en cuenta el cardio y el rendimiento reciente.' : 'Se ha repartido el cardio entre los equipos de forma equilibrada.'}</p></div>
+            <div class="randomizer-result-hero__stats"><strong>${totalPlayers}</strong><span>jugadores</span><small>${setup.perTeamLabel} por equipo</small></div>
+        </section>
+        <div class="randomizer-result-grid">${teams.map((team, index) => {
+            const teamName = names[index];
+            const cardioPlayers = team.filter((player) => player.has_cardio).length;
+            const performance = team.reduce((sum, player) => sum + (player.statsScore || 0), 0);
+            return `<section class="card generated-team generated-team--${teamName.toLowerCase()}">
+                <header class="generated-team__header">
+                    <i class="team-mark${index % 2 ? ' team-mark--gold' : ''}">${teamName}</i>
+                    <div><span>EQUIPO</span><h2>Equipo ${teamName}</h2></div>
+                    <strong>${team.length}<small>jugadores</small></strong>
+                </header>
+                <div class="generated-team__meta">
+                    <span>⚡ ${cardioPlayers} con cardio</span>
+                    ${state.randomizer?.balanceStats ? `<span>${formatSignedDecimal(performance)} puntos de forma</span>` : ''}
+                </div>
+                <div class="generated-team__players">${team.map((player, playerIndex) => `<div class="generated-team__player">
+                    <span class="generated-team__position">${String(playerIndex + 1).padStart(2, '0')}</span>
+                    ${avatar({ id: player.id, name: player.name })}
+                    <strong>${esc(player.name)}</strong>
+                    ${player.has_cardio ? '<span class="generated-team__cardio" title="Buen cardio">⚡</span>' : ''}
+                </div>`).join('')}</div>
+            </section>`;
+        }).join('')}</div>
+        <section class="card randomizer-result-footer">
+            <div><span class="manager-form__icon" aria-hidden="true">${icon('info')}</span><p>${teams.length === 2 ? 'Puedes volver a sortear, guardar este reparto o crear directamente el acta.' : 'Puedes volver a sortear. Para crear un acta necesitas exactamente dos equipos.'}</p></div>
+            <div class="manager-result-actions">
+                <button class="btn btn--text" type="button" data-action="randomizer-redraw">${icon('shuffle')} Repetir sorteo</button>
+                ${teams.length === 2 ? `<button class="btn btn--outline" type="button" data-action="randomizer-save">Guardar borrador</button><button class="btn" type="button" data-action="randomizer-create-record">${icon('plus')} Crear acta</button>` : ''}
+            </div>
+        </section>
     </section>`;
 }
 
@@ -2479,12 +2574,17 @@ root.addEventListener('click', async (event) => {
         render();
     } else if (action === 'randomizer-select-none') {
         state.randomizer.selected = new Set();
+        state.randomizer.teams = 2;
         render();
-    } else if (action === 'randomizer-decrease') {
-        state.randomizer.teams = Math.max(2, state.randomizer.teams - 1);
-        render();
-    } else if (action === 'randomizer-increase') {
-        state.randomizer.teams = Math.min(Math.max(2, state.randomizer.selected.size), state.randomizer.teams + 1);
+    } else if (action === 'randomizer-set-teams') {
+        const teamCount = Number(target.dataset.teams);
+        if (
+            Number.isInteger(teamCount)
+            && teamCount >= 2
+            && teamCount <= Math.min(MAX_RANDOMIZER_TEAMS, state.randomizer.selected.size)
+        ) {
+            state.randomizer.teams = teamCount;
+        }
         render();
     } else if (action === 'randomizer-draw') {
         drawTeams();
@@ -2533,7 +2633,10 @@ root.addEventListener('change', async (event) => {
     } else if (target.matches('[data-randomizer-player]')) {
         if (target.checked) state.randomizer.selected.add(target.dataset.randomizerPlayer);
         else state.randomizer.selected.delete(target.dataset.randomizerPlayer);
-        state.randomizer.teams = Math.min(state.randomizer.teams, Math.max(2, state.randomizer.selected.size));
+        state.randomizer.teams = Math.min(
+            state.randomizer.teams,
+            Math.max(2, Math.min(MAX_RANDOMIZER_TEAMS, state.randomizer.selected.size)),
+        );
         render();
     } else if (target.id === 'randomizer-balance') {
         state.randomizer.balanceStats = target.checked;
