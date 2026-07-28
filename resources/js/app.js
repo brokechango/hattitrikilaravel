@@ -38,6 +38,14 @@ import {
     restoreStatCardScroll,
     shouldBlockStatCardScroll,
 } from './stat-card-gesture';
+import {
+    AVATAR_FAILURE_REFRESH_COOLDOWN_MS,
+    AVATAR_REFRESH_INTERVAL_MS,
+    AVATAR_SIGNED_URL_TTL_SECONDS,
+    avatarRetryDelay,
+    mapSignedAvatarUrls,
+    shouldRefreshAvatarUrls,
+} from './avatar-urls';
 
 const root = document.querySelector('#app');
 let pullRefreshBusy = false;
@@ -46,6 +54,11 @@ let lastRenderedRoute = null;
 let authMotionPending = false;
 let matchStepMotionPending = false;
 let rankingMotionPending = false;
+let avatarRefreshTimer = null;
+let avatarRefreshPromise = null;
+let avatarRefreshGeneration = 0;
+let avatarRefreshAttempt = 0;
+let lastAvatarFailureRefreshAt = 0;
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const AUTH_BOOT_TIMEOUT_MS = 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
@@ -89,6 +102,8 @@ const state = {
     selectedSeasonId: null,
     seasonBusy: false,
     avatars: {},
+    avatarRows: [],
+    avatarUrlsSignedAt: 0,
     currentPlayerId: null,
     mvpVotes: [],
     mvpVotingDisabledMatchIds: new Set(),
@@ -444,7 +459,10 @@ async function loadApplicationData(force = false) {
         state.currentPlayerId = (Array.isArray(currentPlayerRows) ? currentPlayerRows[0] : currentPlayerRows)?.player_id ?? null;
         state.mvpVotes = mvpVotes || [];
         state.mvpVotingDisabledMatchIds = collectDisabledMvpMatchIds(mvpVotingDisabledMatches);
-        state.avatars = await loadSignedAvatars(avatarRows);
+        avatarRefreshGeneration += 1;
+        avatarRefreshPromise = null;
+        state.avatarRows = Array.isArray(avatarRows) ? avatarRows : [];
+        await refreshAvatarUrls({ force: true, replace: true });
         state.profileDetails = {};
         state.loading = false;
         state.adminPlayers = null;
@@ -483,16 +501,94 @@ async function refreshMvpVotes() {
     state.mvpVotes = await rpc('get_league_match_mvp_votes');
 }
 
-async function loadSignedAvatars(rows) {
-    if (!rows?.length) return {};
-    const paths = rows.map((row) => row.avatar_path);
-    const { data, error } = await state.client.storage.from('avatars').createSignedUrls(paths, 600);
-    if (error) return {};
-    return rows.reduce((urls, row, index) => {
-        const signed = data?.[index]?.signedUrl;
-        if (signed) urls[row.player_id] = `${signed}${signed.includes('?') ? '&' : '?'}avatar_version=${row.avatar_version || 0}`;
-        return urls;
-    }, {});
+function clearAvatarRefreshTimer() {
+    window.clearTimeout(avatarRefreshTimer);
+    avatarRefreshTimer = null;
+}
+
+function scheduleAvatarRefresh(delay = AVATAR_REFRESH_INTERVAL_MS) {
+    clearAvatarRefreshTimer();
+
+    if (!state.session || !state.access || !state.avatarRows.length) return;
+
+    avatarRefreshTimer = window.setTimeout(() => {
+        void refreshAvatarUrls({ force: true, renderAfter: true });
+    }, delay);
+}
+
+function resetAvatarState() {
+    clearAvatarRefreshTimer();
+    avatarRefreshGeneration += 1;
+    avatarRefreshPromise = null;
+    state.avatars = {};
+    state.avatarRows = [];
+    state.avatarUrlsSignedAt = 0;
+    avatarRefreshAttempt = 0;
+    lastAvatarFailureRefreshAt = 0;
+}
+
+async function refreshAvatarUrls({
+    force = false,
+    renderAfter = false,
+    replace = false,
+} = {}) {
+    if (!state.client || !state.session || !state.access) return;
+    if (!force && !shouldRefreshAvatarUrls(state.avatarUrlsSignedAt)) return;
+    if (avatarRefreshPromise) return avatarRefreshPromise;
+
+    if (!state.avatarRows.length) {
+        resetAvatarState();
+        return;
+    }
+
+    const generation = avatarRefreshGeneration;
+    const rows = state.avatarRows;
+    const refreshPromise = (async () => {
+        try {
+            const paths = rows.map((row) => row.avatar_path);
+            const { data, error } = await withTimeout(
+                state.client.storage.from('avatars').createSignedUrls(
+                    paths,
+                    AVATAR_SIGNED_URL_TTL_SECONDS,
+                ),
+                SUPABASE_REQUEST_TIMEOUT_MS,
+                'AVATAR_SIGNING_TIMEOUT',
+            );
+
+            if (error) throw error;
+            if (generation !== avatarRefreshGeneration) return;
+
+            const { urls, missingPlayerIds } = mapSignedAvatarUrls(rows, data);
+            state.avatars = replace ? urls : { ...state.avatars, ...urls };
+
+            if (missingPlayerIds.length) {
+                const retryDelay = avatarRetryDelay(avatarRefreshAttempt);
+                avatarRefreshAttempt += 1;
+                scheduleAvatarRefresh(retryDelay);
+            } else {
+                state.avatarUrlsSignedAt = Date.now();
+                avatarRefreshAttempt = 0;
+                scheduleAvatarRefresh();
+            }
+
+            if (renderAfter) render();
+        } catch {
+            if (generation !== avatarRefreshGeneration) return;
+
+            const retryDelay = avatarRetryDelay(avatarRefreshAttempt);
+            avatarRefreshAttempt += 1;
+            scheduleAvatarRefresh(retryDelay);
+        }
+    })();
+    avatarRefreshPromise = refreshPromise;
+
+    try {
+        await refreshPromise;
+    } finally {
+        if (avatarRefreshPromise === refreshPromise) {
+            avatarRefreshPromise = null;
+        }
+    }
 }
 
 function playerById(id) {
@@ -634,9 +730,10 @@ function ranking(category = state.rankingCategory) {
 
 function avatar(player, large = false) {
     const url = state.avatars[player?.id];
+    const fallback = initials(player?.name);
     return `<span class="avatar${large ? ' avatar--large' : ''}">${url
-        ? `<img src="${esc(url)}" alt="Foto de perfil de ${esc(player.name)}">`
-        : esc(initials(player?.name))}</span>`;
+        ? `<img src="${esc(url)}" alt="Foto de perfil de ${esc(player.name)}" data-user-avatar data-avatar-player-id="${esc(player.id)}" data-avatar-fallback="${esc(fallback)}">`
+        : esc(fallback)}</span>`;
 }
 
 function navLink(route, tab, label, iconName, modifier = '') {
@@ -900,7 +997,7 @@ function renderHome() {
             <p class="home-drag-help" id="home-drag-help">Mantén pulsada una tarjeta y arrástrala para cambiar su posición.</p>
             <div class="stats-grid">
                 ${featured.map(([symbol, label, item, value, detail, category]) => `<button class="card card--clickable stat-card" type="button" draggable="false" data-action="open-ranking" data-category="${category}" data-stat-key="${category}" aria-describedby="home-drag-help">
-                    ${state.avatars[item.player.id] ? `<img class="stat-card__avatar" src="${esc(state.avatars[item.player.id])}" alt="" draggable="false">` : ''}
+                    ${state.avatars[item.player.id] ? `<img class="stat-card__avatar" src="${esc(state.avatars[item.player.id])}" alt="" draggable="false" data-user-avatar data-avatar-player-id="${esc(item.player.id)}" data-avatar-fallback="${esc(initials(item.player.name))}">` : ''}
                     <span class="stat-card__accent" aria-hidden="true"></span>
                     <span class="stat-card__content">
                         <span class="stat-card__header"><span class="stat-card__label">${esc(label)}</span><span class="stat-card__icon">${symbol}</span></span>
@@ -1128,7 +1225,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
     ];
     const metricMarkup = ([label, value, , modifier]) => `<div class="metric ${modifier}"><strong class="metric__value">${esc(value)}</strong><span class="metric__label">${esc(label)}</span></div>`;
     const avatarContent = state.avatars[playerId]
-        ? `<button class="profile-avatar-button" type="button" data-action="view-avatar" data-url="${esc(state.avatars[playerId])}" data-name="${esc(item.player.name)}">${avatar(item.player, true)}</button>`
+        ? `<button class="profile-avatar-button" type="button" data-action="view-avatar" data-url="${esc(state.avatars[playerId])}" data-player-id="${esc(playerId)}" data-name="${esc(item.player.name)}">${avatar(item.player, true)}</button>`
         : avatar(item.player, true);
     const profileAvatar = `<div class="profile-avatar-wrap">${avatarContent}${canEditPhoto ? `<label class="profile-avatar-edit" for="avatar-upload" aria-label="${state.avatars[playerId] ? 'Cambiar foto' : 'Añadir foto'}">${icon('edit')}<input id="avatar-upload" class="visually-hidden" type="file" accept="image/jpeg,image/webp"></label>` : ''}</div>`;
     return `<section class="page profile-page">
@@ -1507,6 +1604,7 @@ async function authorizeAndLoad() {
         const access = await rpc('get_current_user_access');
         state.access = normalizeAccess(access);
         if (!state.access) {
+            resetAvatarState();
             await state.client.auth.signOut({ scope: 'local' });
             state.session = null;
             state.authError = 'Esta cuenta no pertenece a la liga o todavía no está activa.';
@@ -1519,6 +1617,7 @@ async function authorizeAndLoad() {
         if (location.pathname === '/') navigate('/inicio', true);
         await loadApplicationData();
     } catch (error) {
+        resetAvatarState();
         state.access = null;
         state.authError = errorMessage(error, 'No se ha podido comprobar tu acceso a la liga. Inténtalo de nuevo.');
         await state.client.auth.signOut({ scope: 'local' }).catch(() => {});
@@ -2399,6 +2498,7 @@ root.addEventListener('click', async (event) => {
         try {
             await state.client.auth.signOut();
         } finally {
+            resetAvatarState();
             state.session = null;
             state.access = null;
             state.snapshot = { players: [], matches: [] };
@@ -2420,6 +2520,7 @@ root.addEventListener('click', async (event) => {
         renderAuth();
     } else if (action === 'discard-callback') {
         await state.client.auth.signOut({ scope: 'local' }).catch(() => {});
+        resetAvatarState();
         state.session = null;
         state.authMode = 'login';
         history.replaceState({}, '', location.pathname);
@@ -2492,7 +2593,7 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'view-avatar') {
         state.dialog = {
             title: 'FOTO DE PERFIL',
-            content: `<img class="enlarged-avatar" src="${esc(target.dataset.url)}" alt="Foto de perfil ampliada de ${esc(target.dataset.name)}"><p>Foto de perfil de ${esc(target.dataset.name)}</p>`,
+            content: `<img class="enlarged-avatar" src="${esc(target.dataset.url)}" alt="Foto de perfil ampliada de ${esc(target.dataset.name)}" data-user-avatar data-avatar-player-id="${esc(target.dataset.playerId)}" data-avatar-fallback="${esc(initials(target.dataset.name))}"><p>Foto de perfil de ${esc(target.dataset.name)}</p>`,
             confirmLabel: 'Cerrar',
             singleAction: true,
             onConfirm: () => {},
@@ -3105,6 +3206,53 @@ root.addEventListener('pointercancel', (event) => {
 
 root.addEventListener('lostpointercapture', (event) => {
     if (state.statReorder?.pointerId === event.pointerId) finishStatReorder(true);
+});
+
+root.addEventListener('error', (event) => {
+    const image = event.target;
+    if (!(image instanceof HTMLImageElement) || !image.matches('[data-user-avatar]')) return;
+
+    const playerId = image.dataset.avatarPlayerId;
+    const renderedUrl = image.getAttribute('src');
+    const fallback = image.dataset.avatarFallback || '?';
+
+    if (playerId && state.avatars[playerId] === renderedUrl) {
+        delete state.avatars[playerId];
+    }
+
+    const avatarRoot = image.closest('.avatar');
+    if (avatarRoot) {
+        avatarRoot.classList.add('avatar--fallback');
+        avatarRoot.textContent = fallback;
+    } else if (image.classList.contains('enlarged-avatar')) {
+        const replacement = document.createElement('span');
+        replacement.className = 'enlarged-avatar enlarged-avatar--fallback';
+        replacement.textContent = fallback;
+        replacement.setAttribute('aria-label', image.alt);
+        image.replaceWith(replacement);
+    } else {
+        image.remove();
+    }
+
+    const now = Date.now();
+    if (now - lastAvatarFailureRefreshAt >= AVATAR_FAILURE_REFRESH_COOLDOWN_MS) {
+        lastAvatarFailureRefreshAt = now;
+        void refreshAvatarUrls({ force: true, renderAfter: true });
+    }
+}, true);
+
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        void refreshAvatarUrls({ renderAfter: true });
+    }
+});
+
+window.addEventListener('online', () => {
+    void refreshAvatarUrls({ force: true, renderAfter: true });
+});
+
+window.addEventListener('pageshow', () => {
+    void refreshAvatarUrls({ renderAfter: true });
 });
 
 async function uploadAvatar(file) {
