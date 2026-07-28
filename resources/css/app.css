@@ -6933,7 +6933,7 @@ body {
     border-radius: 8px;
     background: rgb(7 17 31 / 32%);
     cursor: pointer;
-    grid-template-columns: 38px minmax(0, 1fr) auto 24px;
+    grid-template-columns: 38px minmax(0, 1fr) 24px;
     transition:
         border-color 170ms ease,
         background-color 170ms ease,
@@ -6985,7 +6985,15 @@ body {
     gap: 2px;
 }
 
-.randomizer-player__copy strong {
+.randomizer-player__name {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 5px;
+}
+
+.randomizer-player__name strong {
+    min-width: 0;
     overflow: hidden;
     font-size: 12px;
     line-height: 16px;
@@ -7001,7 +7009,10 @@ body {
 }
 
 .randomizer-player__cardio {
+    flex: 0 0 auto;
+    padding-inline-start: 2px;
     font-size: 13px;
+    line-height: 16px;
 }
 
 .randomizer-player__check {

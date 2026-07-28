@@ -2045,10 +2045,12 @@ function renderRandomizer() {
                         <input class="randomizer-player__input" type="checkbox" data-randomizer-player="${esc(player.id)}" ${checked ? 'checked' : ''}>
                         ${avatar({ id: player.id, name: player.name })}
                         <span class="randomizer-player__copy">
-                            <strong>${esc(player.name)}</strong>
+                            <span class="randomizer-player__name">
+                                <strong>${esc(player.name)}</strong>
+                                ${player.has_cardio ? '<span class="randomizer-player__cardio" title="Buen cardio" aria-hidden="true">⚡</span>' : ''}
+                            </span>
                             <small>${player.has_cardio ? 'Buen cardio' : 'Jugador disponible'}</small>
                         </span>
-                        ${player.has_cardio ? '<span class="randomizer-player__cardio" title="Buen cardio">⚡</span>' : ''}
                         <span class="randomizer-player__check" aria-hidden="true">${checked ? '✓' : ''}</span>
                     </label>`;
                 }).join('')}</div>` : `<div class="randomizer-empty">
