@@ -2,6 +2,8 @@ import { animate, hover, inView, stagger } from 'motion';
 
 const easeOut = [0.2, 0.8, 0.2, 1];
 let cleanupTasks = [];
+let activeNavigationId = null;
+let revealedKeys = new Set();
 
 export function formatProfileMetric(value, format = 'integer') {
     const numericValue = Number(value) || 0;
@@ -81,14 +83,27 @@ export function cleanupProfileDashboardMotion() {
     cleanupTasks = [];
 }
 
-export function setupProfileDashboardMotion(root, reduceMotion = false) {
+export function setupProfileDashboardMotion(root, options = {}) {
     cleanupProfileDashboardMotion();
+
+    const reduceMotion = typeof options === 'boolean'
+        ? options
+        : Boolean(options.reduceMotion);
+    const navigationId = typeof options === 'object'
+        ? Number(options.navigationId) || 0
+        : 0;
+
+    if (navigationId !== activeNavigationId) {
+        activeNavigationId = navigationId;
+        revealedKeys = new Set();
+    }
 
     const dashboard = root.querySelector('.profile-page');
     if (!dashboard || reduceMotion) return;
 
     const heroItems = dashboard.querySelectorAll('.profile-hero__identity, .profile-hero__numbers');
-    if (heroItems.length) {
+    if (heroItems.length && !revealedKeys.has('hero')) {
+        revealedKeys.add('hero');
         trackAnimation(animate(heroItems, {
             opacity: [0, 1],
             y: [14, 0],
@@ -110,7 +125,11 @@ export function setupProfileDashboardMotion(root, reduceMotion = false) {
         '.profile-explanations-wrap',
     ].join(', '));
 
-    revealTargets.forEach((element) => {
+    revealTargets.forEach((element, index) => {
+        const key = `${element.className}:${index}`;
+        element.dataset.motionKey = key;
+        if (revealedKeys.has(key)) return;
+
         trackAnimation(animate(element, {
             opacity: 0,
             y: 22,
@@ -119,8 +138,9 @@ export function setupProfileDashboardMotion(root, reduceMotion = false) {
     });
 
     const stopRevealObserver = inView(revealTargets, (element) => {
-        if (element.dataset.motionRevealed === 'true') return;
-        element.dataset.motionRevealed = 'true';
+        const key = element.dataset.motionKey;
+        if (!key || revealedKeys.has(key)) return;
+        revealedKeys.add(key);
 
         trackAnimation(animate(element, {
             opacity: [0, 1],

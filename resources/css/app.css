@@ -170,10 +170,6 @@ noscript {
     padding: 31px;
 }
 
-.auth-card--motion-enter {
-    animation: state-content-in var(--motion-duration-base) var(--motion-ease-out) both;
-}
-
 .auth-card--flow .auth-crest {
     width: 64px;
     height: 64px;
@@ -725,15 +721,6 @@ noscript {
     min-height: 100%;
     margin: 0 auto;
     padding: 28px 40px 48px;
-}
-
-.pull-refresh-content--route-enter > .page {
-    animation: route-enter var(--motion-duration-base) var(--motion-ease-out) both;
-}
-
-@keyframes route-enter {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: none; }
 }
 
 .page-header {
@@ -1995,10 +1982,6 @@ noscript {
 
 .rankings-filters--visible {
     display: block;
-    animation: state-content-in var(--motion-duration-base) var(--motion-ease-out) both;
-}
-
-.ranking-content--motion-enter {
     animation: state-content-in var(--motion-duration-base) var(--motion-ease-out) both;
 }
 
@@ -3849,10 +3832,6 @@ button.step {
     align-content: start;
     gap: 24px;
     padding: 26px;
-}
-
-.match-editor__body--motion-enter {
-    animation: state-content-in var(--motion-duration-base) var(--motion-ease-out) both;
 }
 
 .match-editor__body > .stack {

@@ -23,7 +23,6 @@ import {
     MOTION_EXIT_DURATION_MS,
     motionDelay,
     prefersReducedMotion,
-    shouldAnimateRoute,
 } from './motion';
 import {
     canStartPullRefresh,
@@ -56,15 +55,15 @@ let pullRefreshBusy = false;
 let pullRefreshGesture = null;
 let lastRenderedRoute = null;
 let authMotionPending = false;
-let matchStepMotionPending = false;
-let rankingMotionPending = false;
 let avatarRefreshTimer = null;
 let avatarRefreshPromise = null;
 let avatarRefreshGeneration = 0;
 let avatarRefreshAttempt = 0;
 let lastAvatarFailureRefreshAt = 0;
-let profileMotionGeneration = 0;
-let profileMotionModule = null;
+let appMotionGeneration = 0;
+let appMotionModule = null;
+let motionNavigationId = 0;
+let motionContentRevision = 0;
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const AUTH_BOOT_TIMEOUT_MS = 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
@@ -230,14 +229,32 @@ function currentRoute() {
 
 function navigate(route, replace = false) {
     const target = route.startsWith('/') ? route : `/${route}`;
-    if (replace) {
-        history.replaceState({}, '', target);
-    } else if (location.pathname !== target) {
-        history.pushState({}, '', target);
+    const update = () => {
+        if (replace) {
+            history.replaceState({}, '', target);
+        } else if (location.pathname !== target) {
+            history.pushState({}, '', target);
+        }
+        state.lastPath = target;
+        render('route');
+    };
+    const focusMain = () => queueMicrotask(() => {
+        document.querySelector('#main-content')?.focus({ preventScroll: true });
+    });
+
+    if (replace || !root.querySelector('.page') || prefersReducedMotion()) {
+        update();
+        focusMain();
+        return;
     }
-    state.lastPath = target;
-    render();
-    queueMicrotask(() => document.querySelector('#main-content')?.focus({ preventScroll: true }));
+
+    void loadAppMotionModule()
+        .then((motionModule) => motionModule.transitionAppView(update, {
+            kind: 'route',
+            reduceMotion: prefersReducedMotion(),
+        }))
+        .catch(update)
+        .finally(focusMain);
 }
 
 function routeTab(route = currentRoute()) {
@@ -765,7 +782,7 @@ function shell(content, options = {}) {
     if (isAdmin()) primary.push(['/mister', 'manager', 'Míster', 'manager']);
 
     const navigation = primary.map(([path, tab, label, iconName]) => navLink(path, tab, label, iconName)).join('');
-    return `<div class="app-shell${options.routeMotion ? ' app-shell--route-enter' : ''}">
+    return `<div class="app-shell">
         <header class="topbar">
             <div class="topbar__inner">
                 <div class="topbar__compact-leading">
@@ -797,7 +814,7 @@ function shell(content, options = {}) {
                     <span class="pull-refresh-indicator__icon" aria-hidden="true">${icon('refresh')}</span>
                     <span class="pull-refresh-indicator__label">Desliza para actualizar</span>
                 </div>
-                <div class="pull-refresh-content${options.routeMotion ? ' pull-refresh-content--route-enter' : ''}">${content}</div>
+                <div class="pull-refresh-content">${content}</div>
             </main>
         </div>
         <nav class="bottom-nav" aria-label="Navegación principal">${primary.map(([path, tab, label, iconName]) => navLink(path, tab, label, iconName)).join('')}</nav>
@@ -857,9 +874,11 @@ function pageLoading(title) {
 }
 
 function renderAuth() {
+    cleanupAppMotion();
     lastRenderedRoute = null;
     const animateAuth = authMotionPending && !prefersReducedMotion();
     authMotionPending = false;
+    if (animateAuth) motionContentRevision += 1;
     const mode = state.authMode;
     let title = 'HATTITRIKI FC';
     let description = 'Acceso privado para miembros de la liga';
@@ -923,7 +942,7 @@ function renderAuth() {
                     <small>RESULTADOS · ESTADÍSTICAS · ACTAS</small>
                 </div>
             </section>
-            <section class="auth-card${flow ? ' auth-card--flow' : ''}${animateAuth ? ' auth-card--motion-enter' : ''}">
+            <section class="auth-card${flow ? ' auth-card--flow' : ''}">
                 <div class="auth-card__heading">
                     <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
                     <span class="auth-card__kicker">${flow ? 'ACCESO SEGURO' : 'ÁREA DE MIEMBROS'}</span>
@@ -939,9 +958,11 @@ function renderAuth() {
             </section>
         </div>
     </main>`;
+    void activateAppMotion(animateAuth ? 'content' : 'state');
 }
 
 function renderAccessCheck() {
+    cleanupAppMotion();
     root.innerHTML = `<main class="auth-stage auth-stage--loading" aria-busy="true" aria-label="Comprobando el acceso">
         <section class="auth-card auth-card--loading">
             <img class="auth-crest" src="/hattitriki-app-icon.png" alt="">
@@ -1120,9 +1141,7 @@ function renderMatchRow(match) {
 
 function renderRankings() {
     if (state.loading) return pageLoading('Rankings');
-    const animateResults = rankingMotionPending && !prefersReducedMotion();
-    rankingMotionPending = false;
-    const motionClass = animateResults ? ' ranking-content--motion-enter' : '';
+    const motionClass = '';
     const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
     const entries = ranking(state.rankingCategory);
     const showRecentForm = state.rankingView === 'detailed';
@@ -1603,24 +1622,43 @@ function confirmDiscard(onDiscard) {
     render();
 }
 
-function cleanupProfileMotion() {
-    profileMotionGeneration += 1;
-    profileMotionModule?.cleanupProfileDashboardMotion();
+function cleanupAppMotion() {
+    appMotionGeneration += 1;
+    appMotionModule?.cleanupAppMotion();
 }
 
-async function activateProfileMotion() {
-    if (!root.querySelector('.profile-dashboard-grid') || prefersReducedMotion()) return;
-
-    const generation = ++profileMotionGeneration;
-    const motionModule = profileMotionModule || await import('./profile-motion');
-    if (generation !== profileMotionGeneration) return;
-
-    profileMotionModule = motionModule;
-    motionModule.setupProfileDashboardMotion(root);
+async function loadAppMotionModule() {
+    if (appMotionModule) return appMotionModule;
+    appMotionModule = await import('./app-motion');
+    return appMotionModule;
 }
 
-function render() {
-    cleanupProfileMotion();
+async function activateAppMotion(renderReason = 'state') {
+    if (!root.firstElementChild) return;
+
+    const generation = ++appMotionGeneration;
+    const motionModule = await loadAppMotionModule();
+    if (generation !== appMotionGeneration) return;
+
+    motionModule.setupAppMotion(root, {
+        contentRevision: motionContentRevision,
+        navigationId: motionNavigationId,
+        reduceMotion: prefersReducedMotion(),
+        renderReason,
+    });
+}
+
+async function transitionRender(reason = 'content', options = {}) {
+    const motionModule = await loadAppMotionModule();
+    await motionModule.transitionAppView(() => render(reason), {
+        kind: reason === 'route' ? 'route' : 'content',
+        direction: options.direction || 0,
+        reduceMotion: prefersReducedMotion(),
+    });
+}
+
+function render(reason = 'state') {
+    cleanupAppMotion();
     if (!state.client || (!state.session && !['invite', 'recovery'].includes(state.authMode))) {
         renderAuth();
         return;
@@ -1631,6 +1669,13 @@ function render() {
         return;
     }
     const route = currentRoute();
+    const routeChanged = lastRenderedRoute !== route;
+    if (routeChanged) {
+        motionNavigationId += 1;
+        motionContentRevision = 0;
+    } else if (reason === 'content') {
+        motionContentRevision += 1;
+    }
     let page;
     if (route === '/inicio') page = renderHome();
     else if (route === '/partidos') page = renderHistory();
@@ -1652,9 +1697,8 @@ function render() {
         navigate('/inicio', true);
         return;
     }
-    const routeMotion = shouldAnimateRoute(lastRenderedRoute, route);
-    root.innerHTML = shell(page, { routeMotion });
-    void activateProfileMotion();
+    root.innerHTML = shell(page);
+    void activateAppMotion(reason);
     lastRenderedRoute = route;
     state.selectionMotion = null;
 }
@@ -1978,8 +2022,6 @@ function renderMatchForm(id = '') {
     const draft = state.matchDraft;
     if (draft.loading) return pageLoading(id ? 'Editar acta' : 'Nueva acta');
     if (draft.error) return `<section class="page">${pageHeader(id ? 'Editar acta' : 'Nueva acta')}<div class="card">${stateView('error', 'No se puede abrir el acta', draft.error, '<button class="btn" data-action="retry-match-draft">Reintentar</button>')}</div></section>`;
-    const animateStep = matchStepMotionPending && !prefersReducedMotion();
-    matchStepMotionPending = false;
     const assigned = Object.values(draft.assignments).filter((teams) => teams?.length).length;
     const complete = [
         hasValidMatchBasics(draft),
@@ -1995,7 +2037,7 @@ function renderMatchForm(id = '') {
             }).join('')}
         </nav>
         <form id="match-form" class="card form-card match-editor" data-id="${esc(id)}">
-            <div class="match-editor__body${animateStep ? ' match-editor__body--motion-enter' : ''}">
+            <div class="match-editor__body">
                 ${draft.draftLoaded ? '<div class="auth-message auth-success">Se han cargado los equipos guardados en el generador. <button class="btn btn--text btn--compact" type="button" data-action="discard-team-draft">Descartar borrador y vaciar equipos</button></div>' : ''}
                 ${state.matchStep === 1 ? renderMatchBasics(draft) : state.matchStep === 2 ? renderMatchTeams(draft) : renderMatchGoals(draft)}
             </div>
@@ -2548,7 +2590,7 @@ root.addEventListener('submit', async (event) => {
         state.historyControlsVisible = false;
         state.historyFiltersVisible = false;
         saveHistoryPreferences();
-        render();
+        await transitionRender('content');
     } else if (form.id === 'player-form') {
         const data = new FormData(form);
         const id = form.dataset.id;
@@ -2589,11 +2631,11 @@ root.addEventListener('submit', async (event) => {
     } else if (form.id === 'manage-players-filter') {
         const data = new FormData(form);
         state.managePlayersFilter = { search: String(data.get('search') || ''), status: String(data.get('status') || 'all'), order: String(data.get('order') || 'az') };
-        render();
+        await transitionRender('content');
     } else if (form.id === 'manage-matches-filter') {
         const data = new FormData(form);
         state.manageMatchesFilter = { search: String(data.get('search') || ''), type: String(data.get('type') || 'all'), order: String(data.get('order') || 'newest') };
-        render();
+        await transitionRender('content');
     }
 });
 
@@ -2663,7 +2705,7 @@ root.addEventListener('click', async (event) => {
         state.authMode = target.dataset.mode;
         state.authError = '';
         authMotionPending = true;
-        renderAuth();
+        await transitionRender('content');
     } else if (action === 'discard-callback') {
         await state.client.auth.signOut({ scope: 'local' }).catch(() => {});
         resetAvatarState();
@@ -2686,16 +2728,14 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'ranking-category') {
         state.rankingCategory = target.dataset.category;
         saveRankingPreferences();
-        rankingMotionPending = true;
-        render();
+        await transitionRender('content');
     } else if (action === 'ranking-view') {
         state.rankingView = target.dataset.view || (state.rankingView === 'compact' ? 'detailed' : 'compact');
         saveRankingPreferences();
-        rankingMotionPending = true;
-        render();
+        await transitionRender('content');
     } else if (action === 'toggle-ranking-filters') {
         state.rankingFiltersVisible = !state.rankingFiltersVisible;
-        render();
+        await transitionRender('content');
     } else if (action === 'ranking-info') {
         const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
         state.dialog = {
@@ -2714,7 +2754,7 @@ root.addEventListener('click', async (event) => {
         state.mvpVotingMatchId = state.mvpVotingMatchId === target.dataset.matchId
             ? null
             : target.dataset.matchId;
-        render();
+        await transitionRender('content');
     } else if (action === 'cast-mvp-vote') {
         if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
         if (target.dataset.playerId === state.currentPlayerId) return;
@@ -2736,7 +2776,7 @@ root.addEventListener('click', async (event) => {
         }
     } else if (action === 'toggle-metric-explanations') {
         state.profileExplanations = !state.profileExplanations;
-        render();
+        await transitionRender('content');
     } else if (action === 'view-avatar') {
         state.dialog = {
             title: 'FOTO DE PERFIL',
@@ -2755,20 +2795,20 @@ root.addEventListener('click', async (event) => {
             state.historyFilter.year ||= String(new Date().getFullYear());
         }
         saveHistoryPreferences();
-        render();
+        await transitionRender('content');
     } else if (action === 'history-toggle-filters') {
         state.historyFiltersVisible = !state.historyFiltersVisible;
-        render();
+        await transitionRender('content');
     } else if (action === 'history-toggle-controls') {
         state.historyControlsVisible = !state.historyControlsVisible;
         if (!state.historyControlsVisible) state.historyFiltersVisible = false;
-        render();
+        await transitionRender('content');
     } else if (action === 'history-clear') {
         state.historyFilter = { mode: 'all', month: '', year: '', from: '', to: '' };
         state.historyControlsVisible = false;
         state.historyFiltersVisible = false;
         saveHistoryPreferences();
-        render();
+        await transitionRender('content');
     } else if (action === 'reload-admin-players') {
         await loadAdminPlayers();
     } else if (action === 'reload-admin-matches') {
@@ -2854,6 +2894,7 @@ root.addEventListener('click', async (event) => {
     } else if (action === 'match-step') {
         collectMatchBasics(document.querySelector('#match-form'));
         const nextStep = Number(target.dataset.step);
+        const direction = nextStep > state.matchStep ? 1 : -1;
         const requirement = nextStep === 2 && !hasValidMatchBasics(state.matchDraft)
             ? matchStepRequirement(state.matchDraft, 1)
             : nextStep === 3 && !hasValidMatchTeams(state.matchDraft)
@@ -2864,8 +2905,7 @@ root.addEventListener('click', async (event) => {
             return;
         }
         state.matchStep = nextStep;
-        matchStepMotionPending = true;
-        render();
+        await transitionRender('content', { direction });
     } else if (action === 'match-next') {
         collectMatchBasics(document.querySelector('#match-form'));
         const requirement = state.matchStep === 1 && !hasValidMatchBasics(state.matchDraft)
@@ -2878,21 +2918,19 @@ root.addEventListener('click', async (event) => {
             return;
         }
         state.matchStep = Math.min(3, state.matchStep + 1);
-        matchStepMotionPending = true;
-        render();
+        await transitionRender('content', { direction: 1 });
     } else if (action === 'match-previous') {
         state.matchStep = Math.max(1, state.matchStep - 1);
-        matchStepMotionPending = true;
-        render();
+        await transitionRender('content', { direction: -1 });
     } else if (action === 'add-goal') {
         state.matchDraft.goals.push({ playerId: '', team: 'A', count: 1, ownGoal: false });
         state.unsaved = true;
-        render();
+        await transitionRender('content');
     } else if (action === 'remove-goal') {
         state.matchDraft.goals.splice(Number(target.dataset.index), 1);
         if (!state.matchDraft.goals.length) state.matchDraft.goals.push({ playerId: '', team: 'A', count: 1, ownGoal: false });
         state.unsaved = true;
-        render();
+        await transitionRender('content');
     } else if (action === 'retry-randomizer') {
         await prepareRandomizer();
     } else if (action === 'randomizer-select-all') {
@@ -2911,7 +2949,7 @@ root.addEventListener('click', async (event) => {
         ) {
             state.randomizer.teams = teamCount;
         }
-        render();
+        await transitionRender('content');
     } else if (action === 'randomizer-draw') {
         drawTeams();
     } else if (action === 'randomizer-redraw') {
@@ -2970,7 +3008,7 @@ root.addEventListener('change', async (event) => {
     } else if (target.name === 'randomizer-balance-mode') {
         if (Object.values(PLAYER_PERFORMANCE_SCOPES).includes(target.value)) {
             state.randomizer.balanceMode = target.value;
-            render();
+            await transitionRender('content');
         }
     } else if (target.id === 'avatar-upload' && target.files?.[0]) {
         await uploadAvatar(target.files[0]);
@@ -3473,8 +3511,9 @@ window.addEventListener('popstate', () => {
     }
     state.lastPath = location.pathname;
     state.menuOpen = false;
-    render();
-    queueMicrotask(() => document.querySelector('#main-content')?.focus({ preventScroll: true }));
+    void transitionRender('route').finally(() => queueMicrotask(() => {
+        document.querySelector('#main-content')?.focus({ preventScroll: true });
+    }));
 });
 
 window.addEventListener('beforeunload', (event) => {

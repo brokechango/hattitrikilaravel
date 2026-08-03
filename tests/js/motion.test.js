@@ -7,8 +7,10 @@ import {
     prefersReducedMotion,
     shouldAnimateRoute,
 } from '../../resources/js/motion';
+import { isMotionTargetVisible } from '../../resources/js/app-motion';
 
 const css = readFileSync(new URL('../../resources/css/app.css', import.meta.url), 'utf8');
+const appMotionSource = readFileSync(new URL('../../resources/js/app-motion.js', import.meta.url), 'utf8');
 
 describe('motion contract', () => {
     it('animates page entry only when the route changes', () => {
@@ -27,13 +29,40 @@ describe('motion contract', () => {
         expect(prefersReducedMotion({ matches: false })).toBe(false);
     });
 
-    it('keeps page entry route-scoped and removes obsolete animations', () => {
+    it('delegates page entry to the route transition orchestrator', () => {
         const pageRule = css.match(/\.page\s*\{[^}]*\}/s)?.[0] || '';
 
         expect(pageRule).not.toContain('animation:');
-        expect(css).toContain('.pull-refresh-content--route-enter > .page');
+        expect(css).not.toContain('.pull-refresh-content--route-enter > .page');
+        expect(appMotionSource).toContain("kind === 'route'");
+        expect(appMotionSource).toContain('animateView');
         expect(css).not.toContain('page-enter');
         expect(css).not.toContain('ranking-dialog-mobile-in');
+    });
+
+    it('waits to reveal offscreen targets until they enter the viewport', () => {
+        expect(isMotionTargetVisible({
+            top: 100,
+            bottom: 220,
+            left: 0,
+            right: 320,
+        }, 800, 390)).toBe(true);
+        expect(isMotionTargetVisible({
+            top: 900,
+            bottom: 1020,
+            left: 0,
+            right: 320,
+        }, 800, 390)).toBe(false);
+        expect(appMotionSource).toContain('prepareOffscreenElement(element)');
+        expect(appMotionSource).toContain('inView(element');
+        expect(appMotionSource).toContain("margin: '0px 0px -8% 0px'");
+    });
+
+    it('keys reveals by navigation and mutable content revision', () => {
+        expect(appMotionSource).toContain('context.navigationId');
+        expect(appMotionSource).toContain('context.contentRevision');
+        expect(appMotionSource).toContain('revealedKeys.has(key)');
+        expect(appMotionSource).toContain('cleanupTasks.push(stopObserver)');
     });
 
     it('uses compositor-friendly motion properties', () => {
