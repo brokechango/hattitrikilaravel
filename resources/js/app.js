@@ -7,6 +7,8 @@ import {
     generateBalancedTeams,
     isGoalsPerMatchEligible,
     matchWinner,
+    PLAYER_PERFORMANCE_SCOPES,
+    playerPerformanceScore,
     toHex,
 } from './football';
 import { formatFlooredTotal } from './formatters';
@@ -2243,7 +2245,14 @@ function renderInvitation() {
 }
 
 async function prepareRandomizer() {
-    state.randomizer = { loading: true, error: '', players: [], selected: new Set(), teams: 2, balanceStats: false };
+    state.randomizer = {
+        loading: true,
+        error: '',
+        players: [],
+        selected: new Set(),
+        teams: 2,
+        balanceMode: PLAYER_PERFORMANCE_SCOPES.STREAK,
+    };
     render();
     try {
         const players = await rpc('get_active_players');
@@ -2269,7 +2278,7 @@ async function refreshRandomizerPlayers() {
             loading: false,
             error: '',
             teams: 2,
-            balanceStats: false,
+            balanceMode: PLAYER_PERFORMANCE_SCOPES.STREAK,
         }),
         players: nextPlayers,
         selected: new Set(nextPlayers
@@ -2358,11 +2367,23 @@ function renderRandomizer() {
                     </div>
                 </section>
                 <section class="randomizer-setting randomizer-balance-setting">
-                    <div>
-                        <strong>Equilibrar por rendimiento</strong>
-                        <small>Usa la forma de los últimos cinco partidos además del cardio.</small>
+                    <div class="randomizer-setting__heading">
+                        <div><strong>Criterio de equilibrio</strong><small>La puntuación se calcula igual que en el ranking.</small></div>
                     </div>
-                    <label class="switch"><input id="randomizer-balance" type="checkbox" aria-label="Equilibrar por rendimiento" ${randomizer.balanceStats ? 'checked' : ''}><span class="switch__track"></span></label>
+                    <div class="randomizer-balance-options" role="radiogroup" aria-label="Criterio de equilibrio por rendimiento">
+                        <label class="randomizer-balance-option${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.STREAK ? ' randomizer-balance-option--active' : ''}">
+                            <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.STREAK}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.STREAK ? 'checked' : ''}>
+                            <span aria-hidden="true">🔥</span>
+                            <strong>Por racha</strong>
+                            <small>Últimos 5 partidos</small>
+                        </label>
+                        <label class="randomizer-balance-option${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? ' randomizer-balance-option--active' : ''}">
+                            <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.HISTORICAL}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? 'checked' : ''}>
+                            <span aria-hidden="true">📚</span>
+                            <strong>Por histórico</strong>
+                            <small>Toda la temporada</small>
+                        </label>
+                    </div>
                 </section>
                 <section class="randomizer-preview" aria-label="Resumen del reparto">
                     <div><span>Equipos</span><strong>${setup.teams}</strong></div>
@@ -2383,11 +2404,14 @@ function drawTeams() {
         .filter((player) => randomizer.selected.has(player.id))
         .map((player) => {
             const item = stats.get(player.id);
-            const statsScore = item?.isFormEligible ? item.formScore : 0;
+            const statsScore = randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.STREAK
+                && !item?.isFormEligible
+                ? 0
+                : playerPerformanceScore(item, randomizer.balanceMode);
             return { ...player, statsScore };
         });
     state.randomizerResult = generateBalancedTeams(selected, randomizer.teams, {
-        balanceStats: randomizer.balanceStats,
+        balanceStats: true,
     });
     navigate('/mister/equipos/resultado');
 }
@@ -2399,11 +2423,13 @@ function renderRandomizerResult() {
     const names = ['A', 'B', 'C', 'D', 'E', 'F'];
     const totalPlayers = teams.flat().length;
     const setup = resolveRandomizerSetup(totalPlayers, teams.length);
+    const historicalBalance = state.randomizer?.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL;
+    const balanceLabel = historicalBalance ? 'histórico' : 'racha';
     return `<section class="page stack stack--wide manager-page manager-page--tools randomizer-result-page">
         ${pageHeader('Equipos listos', 'Revisa el reparto y decide si quieres usarlo para el próximo partido.', `<a class="btn btn--outline btn--compact" href="/mister/equipos">Editar convocatoria</a>`)}
         <section class="card randomizer-result-hero">
             <span class="randomizer-result-hero__icon" aria-hidden="true">${icon('shuffle')}</span>
-            <div><span>REPARTO COMPLETADO</span><h2>${teams.length} equipos preparados</h2><p>${state.randomizer?.balanceStats ? 'Se ha tenido en cuenta el cardio y el rendimiento reciente.' : 'Se ha repartido el cardio entre los equipos de forma equilibrada.'}</p></div>
+            <div><span>REPARTO COMPLETADO</span><h2>${teams.length} equipos preparados</h2><p>Se han equilibrado el cardio y la puntuación de ${balanceLabel} calculada como en el ranking.</p></div>
             <div class="randomizer-result-hero__stats"><strong>${totalPlayers}</strong><span>jugadores</span><small>${setup.perTeamLabel} por equipo</small></div>
         </section>
         <div class="randomizer-result-grid">${teams.map((team, index) => {
@@ -2418,7 +2444,7 @@ function renderRandomizerResult() {
                 </header>
                 <div class="generated-team__meta">
                     <span>⚡ ${cardioPlayers} con cardio</span>
-                    ${state.randomizer?.balanceStats ? `<span>${formatSignedDecimal(performance)} puntos de forma</span>` : ''}
+                    <span>${formatSignedDecimal(performance)} puntos de ${balanceLabel}</span>
                 </div>
                 <div class="generated-team__players">${team.map((player, playerIndex) => `<div class="generated-team__player">
                     <span class="generated-team__position">${String(playerIndex + 1).padStart(2, '0')}</span>
@@ -2935,8 +2961,11 @@ root.addEventListener('change', async (event) => {
             Math.max(2, Math.min(MAX_RANDOMIZER_TEAMS, state.randomizer.selected.size)),
         );
         render();
-    } else if (target.id === 'randomizer-balance') {
-        state.randomizer.balanceStats = target.checked;
+    } else if (target.name === 'randomizer-balance-mode') {
+        if (Object.values(PLAYER_PERFORMANCE_SCOPES).includes(target.value)) {
+            state.randomizer.balanceMode = target.value;
+            render();
+        }
     } else if (target.id === 'avatar-upload' && target.files?.[0]) {
         await uploadAvatar(target.files[0]);
     } else if (target.closest('#match-form')) {

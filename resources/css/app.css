@@ -8127,8 +8127,7 @@ body {
     gap: 12px;
 }
 
-.randomizer-setting__heading > div,
-.randomizer-balance-setting > div {
+.randomizer-setting__heading > div {
     display: grid;
     gap: 3px;
 }
@@ -8196,11 +8195,65 @@ body {
 }
 
 .randomizer-balance-setting {
-    display: flex;
-    min-height: 68px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 14px;
+    gap: 12px;
+}
+
+.randomizer-balance-options {
+    display: grid;
+    gap: 8px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.randomizer-balance-option {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    gap: 2px;
+    padding: 12px;
+    border: 1px solid rgb(111 137 163 / 30%);
+    border-radius: 8px;
+    background: rgb(7 17 31 / 40%);
+    cursor: pointer;
+    transition:
+        border-color var(--motion-duration-base) var(--motion-ease-standard),
+        background-color var(--motion-duration-base) var(--motion-ease-standard),
+        transform var(--motion-duration-base) var(--motion-ease-out);
+}
+
+.randomizer-balance-option:hover {
+    border-color: rgb(242 190 62 / 48%);
+    transform: translateY(-1px);
+}
+
+.randomizer-balance-option:focus-within {
+    outline: 2px solid var(--gold);
+    outline-offset: 2px;
+}
+
+.randomizer-balance-option--active {
+    border-color: var(--gold);
+    background: rgb(242 190 62 / 11%);
+}
+
+.randomizer-balance-option input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.randomizer-balance-option > span {
+    margin-bottom: 3px;
+    font-size: 18px;
+    line-height: 22px;
+}
+
+.randomizer-balance-option > strong {
+    color: var(--white);
+}
+
+.randomizer-balance-option--active > strong {
+    color: var(--gold-light);
 }
 
 .randomizer-preview {
@@ -8621,6 +8674,10 @@ body {
         grid-template-columns: 1fr;
     }
 
+    .randomizer-balance-options {
+        grid-template-columns: 1fr;
+    }
+
     .randomizer-preview > div {
         border-right: 0;
         border-bottom: 1px solid rgb(111 137 163 / 16%);
@@ -8634,6 +8691,7 @@ body {
 @media (forced-colors: active) {
     .randomizer-player,
     .randomizer-team-option,
+    .randomizer-balance-option,
     .randomizer-result-hero {
         border: 1px solid CanvasText;
     }
@@ -8645,6 +8703,7 @@ body {
     .mvp-candidate:hover:not(:disabled),
     .randomizer-player:hover,
     .randomizer-team-option:hover:not(:disabled),
+    .randomizer-balance-option:hover,
     .admin-tool:hover {
         box-shadow: none;
         transform: none;

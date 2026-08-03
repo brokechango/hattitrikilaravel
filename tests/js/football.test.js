@@ -7,6 +7,8 @@ import {
     generateBalancedTeams,
     isGoalsPerMatchEligible,
     matchWinner,
+    PLAYER_PERFORMANCE_SCOPES,
+    playerPerformanceScore,
     toHex,
 } from '../../resources/js/football';
 
@@ -176,13 +178,27 @@ describe('football calculations', () => {
         });
         expect(ana.formScore).toBeCloseTo(17.835, 3);
         expect(ana.eloRating).toBeCloseTo(1021.035, 3);
+        expect(ana.historicalScore).toBeCloseTo(21.035, 3);
         expect(bea.formScore).toBeCloseTo(-14.635, 3);
         expect(bea.eloRating).toBeCloseTo(982.965, 3);
+        expect(bea.historicalScore).toBeCloseTo(-17.035, 3);
         expect(carla).toMatchObject({
             formMatches: 1,
             formGoals: 1,
             isFormEligible: false,
         });
+    });
+
+    it('exposes streak and historical balancing scores from the ranking calculation', () => {
+        const ana = calculatePlayerStats(snapshot)
+            .find((item) => item.player.id === 'ana');
+
+        expect(playerPerformanceScore(ana, PLAYER_PERFORMANCE_SCOPES.STREAK))
+            .toBeCloseTo(ana.formScore, 10);
+        expect(playerPerformanceScore(ana, PLAYER_PERFORMANCE_SCOPES.HISTORICAL))
+            .toBeCloseTo(ana.historicalScore, 10);
+        expect(playerPerformanceScore(undefined, PLAYER_PERFORMANCE_SCOPES.HISTORICAL))
+            .toBe(0);
     });
 
     it('ignores every goalkeeper field when calculating Elo form', () => {

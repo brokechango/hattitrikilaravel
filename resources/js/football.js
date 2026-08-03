@@ -83,6 +83,19 @@ const GOAL_ELO_IMPACT = 2;
 const OWN_GOAL_ELO_IMPACT = 3;
 const FORM_MATCH_WEIGHTS = [1, 0.8, 0.6, 0.4, 0.2];
 
+export const PLAYER_PERFORMANCE_SCOPES = Object.freeze({
+    STREAK: 'streak',
+    HISTORICAL: 'historical',
+});
+
+export function playerPerformanceScore(stats, scope = PLAYER_PERFORMANCE_SCOPES.STREAK) {
+    const value = scope === PLAYER_PERFORMANCE_SCOPES.HISTORICAL
+        ? stats?.historicalScore
+        : stats?.formScore;
+
+    return Number(value) || 0;
+}
+
 function teamAverageRating(playerIds, ratings) {
     if (!playerIds.size) {
         return INITIAL_ELO_RATING;
@@ -230,8 +243,11 @@ function calculatePlayerFormMetrics(snapshot) {
             else formLosses += 1;
         });
 
+        const eloRating = ratings.get(player.id) ?? INITIAL_ELO_RATING;
+        const historicalScore = eloRating - INITIAL_ELO_RATING;
+
         return [player.id, {
-            eloRating: ratings.get(player.id) ?? INITIAL_ELO_RATING,
+            eloRating,
             formDraws,
             formGoals,
             formLosses,
@@ -240,6 +256,9 @@ function calculatePlayerFormMetrics(snapshot) {
             formScore: Math.abs(formScore) < Number.EPSILON ? 0 : formScore,
             formWins,
             isFormEligible: formMatches > 0 && formMatches >= requiredMatches,
+            historicalScore: Math.abs(historicalScore) < Number.EPSILON
+                ? 0
+                : historicalScore,
             latestFormImpact,
         }];
     }));
