@@ -5614,6 +5614,7 @@ body {
 
 .hero-score__cta {
     display: flex;
+    align-items: center;
     justify-content: flex-end;
     padding-top: 13px;
     border-top: 1px solid rgb(111 137 163 / 19%);
@@ -5628,6 +5629,7 @@ body {
     margin-left: 8px;
     color: var(--gold);
     font-size: 15px;
+    line-height: 1;
 }
 
 .home-season {
