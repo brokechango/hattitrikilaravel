@@ -1294,18 +1294,26 @@ function renderMatchDetail(id) {
     return `<section class="page match-detail-page">
         ${pageHeader(formatDate(match.playedOn), 'Acta del partido y alineaciones.')}
         <div class="match-detail-grid">
-            <section class="card card--highlight scoreboard match-scoreboard">
+            <section class="card card--highlight scoreboard match-scoreboard" aria-labelledby="match-scoreboard-title">
+                <h2 id="match-scoreboard-title" class="visually-hidden">Resultado final</h2>
                 <div class="match-scoreboard__meta">
-                    <span class="match-scoreboard__status"><i></i> FINALIZADO</span>
+                    <span class="match-scoreboard__status"><i aria-hidden="true"></i> Finalizado</span>
                     <span>${participantCount} jugadores · ${totalRecordedGoals} goles registrados</span>
                 </div>
                 <div class="scoreboard__main">
-                    <span class="scoreboard__team"><i class="team-mark">A</i><b>Equipo A</b></span>
+                    <span class="scoreboard__team scoreboard__team--a">
+                        <i class="team-mark">A</i>
+                        <span class="scoreboard__team-copy"><small>Equipo</small><b>A</b></span>
+                    </span>
                     <span class="scoreboard__score">
-                        <strong class="score-pill">${match.teamAScore} <small>—</small> ${match.teamBScore}</strong>
+                        <small class="scoreboard__label">Resultado</small>
+                        <strong class="scoreboard__result" aria-label="Equipo A ${match.teamAScore}, Equipo B ${match.teamBScore}"><span>${match.teamAScore}</span><i>:</i><span>${match.teamBScore}</span></strong>
                         ${match.teamAPenaltyScore != null ? `<strong class="scoreboard__shootout penalty-score" aria-label="Penaltis: ${match.teamAPenaltyScore} a ${match.teamBPenaltyScore}">${formatPenaltyScore(match.teamAPenaltyScore, match.teamBPenaltyScore)}</strong>` : ''}
                     </span>
-                    <span class="scoreboard__team"><b>Equipo B</b><i class="team-mark team-mark--gold">B</i></span>
+                    <span class="scoreboard__team scoreboard__team--b">
+                        <span class="scoreboard__team-copy"><small>Equipo</small><b>B</b></span>
+                        <i class="team-mark team-mark--gold">B</i>
+                    </span>
                 </div>
             </section>
             <section class="match-detail-section match-teams">
