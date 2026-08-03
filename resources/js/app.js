@@ -1217,55 +1217,134 @@ function renderPlayerProfile(playerId, ownProfile = false) {
     const canEditPhoto = profileDetail !== 'loading'
         && !profileDetail.error
         && Boolean(profileDetail.is_current_player);
-    const rankingMetrics = [
-        ['Partidos jugados', item.matchesPlayed, 'Partidos en los que el jugador aparece en una alineación.', 'metric--matches'],
-        ['Goles', item.goals, 'Goles marcados por el jugador. Los goles en propia puerta no suman en esta métrica.', 'metric--gold'],
-        ['Goles por partido', formatDecimal(item.goalsPerMatch), 'Media de goles marcados por cada partido jugado.', 'metric--gold'],
-        ['Partidos como portero', item.goalkeeperMatches, 'Partidos en los que figura como portero, aunque también haya otro portero en su equipo.', 'metric--keeper'],
+    const selectedSeason = state.seasons.find((season) => season.id === state.selectedSeasonId);
+    const winRate = item.matchesPlayed ? Math.round((item.wins / item.matchesPlayed) * 100) : 0;
+    const formScore = Math.floor(Number(item.formScore) || 0);
+    const formScoreLabel = `${formScore > 0 ? '+' : ''}${formatFlooredTotal(formScore)}`;
+    const rankPosition = (category) => {
+        const index = ranking(category).findIndex((entry) => entry.player.id === playerId);
+        return index >= 0 ? index + 1 : null;
+    };
+    const dashboardMetrics = [
+        ['Partidos', item.matchesPlayed, 'Partidos en los que el jugador aparece en una alineación.', 'matches'],
+        ['Goles', item.goals, 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals'],
+        ['Goles / partido', formatDecimal(item.goalsPerMatch), 'Media de goles marcados por cada partido jugado.', 'average'],
+        ['Rating Elo', Math.round(item.eloRating), 'Valor de rendimiento calculado según resultado, nivel del rival y goles.', 'elo'],
     ];
-    const resultMetrics = [
-        ['Victorias', item.wins, 'Partidos jugados que terminó ganando su equipo.', 'metric--win'],
-        ['Empates', item.draws, 'Partidos jugados que terminaron sin un equipo ganador.', ''],
-        ['Derrotas', item.losses, 'Partidos jugados que terminó perdiendo su equipo.', 'metric--loss'],
+    const dashboardRankings = [
+        ['Goleadores', rankPosition('top-scorer'), `${item.goals} ${item.goals === 1 ? 'gol' : 'goles'}`, 'top-scorer'],
+        ['Victorias', rankPosition('most-wins'), `${item.wins} ${item.wins === 1 ? 'victoria' : 'victorias'}`, 'most-wins'],
+        ['En racha', rankPosition('player-on-form'), item.isFormEligible ? `${formScoreLabel} puntos` : 'Sin mínimo de partidos', 'player-on-form'],
+        ['MVP', rankPosition('people-favourite'), `${item.mvpVotes} ${item.mvpVotes === 1 ? 'voto' : 'votos'}`, 'people-favourite'],
     ];
-    const metricMarkup = ([label, value, , modifier]) => `<div class="metric ${modifier}"><strong class="metric__value">${esc(value)}</strong><span class="metric__label">${esc(label)}</span></div>`;
+    const formLabels = {
+        win: ['V', 'Victoria', 'win'],
+        draw: ['E', 'Empate', 'draw'],
+        loss: ['D', 'Derrota', 'loss'],
+        none: ['—', 'No jugó', 'none'],
+        pending: ['·', 'Sin partido', 'pending'],
+    };
+    const formChart = item.recentForm.map((result, index) => {
+        const [shortLabel, longLabel, modifier] = formLabels[result] || formLabels.pending;
+        return `<li class="profile-form-chart__item profile-form-chart__item--${modifier}" aria-label="Partido ${index + 1}: ${longLabel}">
+            <span class="profile-form-chart__bar"><i></i></span><strong>${shortLabel}</strong>
+        </li>`;
+    }).join('');
+    const metricExplanations = [
+        ...dashboardMetrics.map(([label, , explanation]) => [label, explanation]),
+        ['Porcentaje de victorias', 'Victorias divididas entre los partidos jugados, redondeado al número entero más cercano.'],
+        ['Forma reciente', 'Representa, del partido más antiguo al más reciente, victorias, empates, derrotas y jornadas en las que no participó.'],
+        ['Rating Elo', 'Todos parten de 1.000 puntos. Cambia según el resultado, la fuerza media del rival y los goles marcados.'],
+    ];
     const avatarContent = state.avatars[playerId]
         ? `<button class="profile-avatar-button" type="button" data-action="view-avatar" data-url="${esc(state.avatars[playerId])}" data-player-id="${esc(playerId)}" data-name="${esc(item.player.name)}">${avatar(item.player, true)}</button>`
         : avatar(item.player, true);
     const profileAvatar = `<div class="profile-avatar-wrap">${avatarContent}${canEditPhoto ? `<label class="profile-avatar-edit" for="avatar-upload" aria-label="${state.avatars[playerId] ? 'Cambiar foto' : 'Añadir foto'}">${icon('edit')}<input id="avatar-upload" class="visually-hidden" type="file" accept="image/jpeg,image/webp"></label>` : ''}</div>`;
     return `<section class="page profile-page">
         ${pageHeader('Perfil')}
-        <section class="card card--highlight profile-hero">
-            ${profileAvatar}
-            <div class="profile-hero__copy">
-                <h2 class="profile-name">${esc(item.player.name)}</h2>
-                <span class="profile-status${item.player.isActive ? ' profile-status--active' : ''}">${item.player.isActive ? 'JUGADOR ACTIVO' : 'JUGADOR INACTIVO'}</span>
-                ${playerId === state.currentPlayerId ? '<span class="profile-current">ESTE ERES TÚ</span>' : ''}
+        <section class="card card--highlight profile-hero" aria-labelledby="profile-player-name">
+            <div class="profile-hero__identity">
+                ${profileAvatar}
+                <div class="profile-hero__copy">
+                    <span class="profile-hero__season">${esc(selectedSeason?.name || 'TEMPORADA ACTUAL')}</span>
+                    <h2 id="profile-player-name" class="profile-name">${esc(item.player.name)}</h2>
+                    <div class="profile-hero__badges">
+                        <span class="profile-status${item.player.isActive ? ' profile-status--active' : ''}"><i aria-hidden="true"></i>${item.player.isActive ? 'JUGADOR ACTIVO' : 'JUGADOR INACTIVO'}</span>
+                        ${playerId === state.currentPlayerId ? '<span class="profile-current">TU PERFIL</span>' : ''}
+                    </div>
+                </div>
+            </div>
+            <div class="profile-hero__numbers" aria-label="Resumen de rendimiento">
+                <span><small>RATING ELO</small><strong>${esc(Math.round(item.eloRating))}</strong></span>
+                <span><small>FORMA</small><strong class="${formScore > 0 ? 'is-positive' : formScore < 0 ? 'is-negative' : ''}">${esc(formScoreLabel)}</strong></span>
+                <span><small>VICTORIAS</small><strong>${esc(winRate)}%</strong></span>
             </div>
         </section>
         ${profileDetail !== 'loading' && !profileDetail.error && !profileDetail.has_linked_account ? '<div class="card profile-hint">Este jugador todavía no tiene una cuenta vinculada.</div>' : ''}
         ${profileDetail?.error ? `<div class="auth-message" role="alert">${esc(profileDetail.error)}</div>` : ''}
-        <div class="profile-main-grid">
-            <section class="card profile-metrics">
-                <div class="profile-metrics__header">
-                    <h2>ESTADÍSTICAS</h2>
-                    <span>TEMPORADA ACTUAL</span>
-                </div>
-                <div class="metric-grid profile-ranking-grid">${rankingMetrics.map(metricMarkup).join('')}</div>
-                <div class="profile-results-heading">
-                    <h3>BALANCE DE PARTIDOS</h3>
-                    <span>${item.matchesPlayed} PJ</span>
-                </div>
-                <div class="metric-grid profile-results-grid">${resultMetrics.map(metricMarkup).join('')}</div>
-                <div class="profile-explanations-wrap">
-                    <button class="btn btn--outline btn--wide" data-action="toggle-metric-explanations">${state.profileExplanations ? 'Ocultar explicaciones' : 'Cómo se calculan'}</button>
-                    ${state.profileExplanations ? `<div class="profile-explanations">${[...rankingMetrics, ...resultMetrics].map(([label, , explanation]) => `<div><strong>${esc(label)}</strong><p>${esc(explanation)}</p></div>`).join('')}</div>` : ''}
+        <div class="profile-dashboard-grid">
+            <section class="card profile-overview" aria-labelledby="profile-overview-title">
+                <header class="profile-card-heading">
+                    <div><span>RENDIMIENTO</span><h2 id="profile-overview-title">Tus números</h2></div>
+                    <span class="profile-card-heading__meta">${esc(item.matchesPlayed)} PJ</span>
+                </header>
+                <div class="profile-overview__metrics">
+                    ${dashboardMetrics.map(([label, value, , modifier]) => `<div class="profile-stat profile-stat--${modifier}"><span class="profile-stat__icon" aria-hidden="true"></span><strong>${esc(value)}</strong><small>${esc(label)}</small></div>`).join('')}
                 </div>
             </section>
-            <section class="profile-connections"><h2>CONEXIONES EN LA LIGA</h2>
+            <section class="card profile-winrate" aria-labelledby="profile-winrate-title">
+                <header class="profile-card-heading profile-card-heading--compact">
+                    <div><span>EFECTIVIDAD</span><h2 id="profile-winrate-title">Victorias</h2></div>
+                </header>
+                <div class="profile-winrate__body">
+                    <div class="profile-donut" role="img" aria-label="${winRate}% de victorias">
+                        <svg viewBox="0 0 42 42" aria-hidden="true"><circle class="profile-donut__track" cx="21" cy="21" r="15.9155"></circle><circle class="profile-donut__value" cx="21" cy="21" r="15.9155" stroke-dasharray="${winRate} ${100 - winRate}"></circle></svg>
+                        <span><strong>${winRate}%</strong><small>de partidos</small></span>
+                    </div>
+                    <div class="profile-winrate__copy"><strong>${item.wins} de ${item.matchesPlayed}</strong><span>${item.matchesPlayed ? (winRate >= 60 ? 'Gran temporada' : winRate >= 40 ? 'Balance competitivo' : 'Margen para crecer') : 'Aún sin partidos'}</span></div>
+                </div>
+            </section>
+            <section class="card profile-form-card" aria-labelledby="profile-form-title">
+                <header class="profile-card-heading">
+                    <div><span>ÚLTIMOS 5 PARTIDOS</span><h2 id="profile-form-title">Evolución reciente</h2></div>
+                    <strong class="profile-form-card__score${formScore > 0 ? ' is-positive' : formScore < 0 ? ' is-negative' : ''}">${esc(formScoreLabel)} pts</strong>
+                </header>
+                <ol class="profile-form-chart" aria-label="Resultados recientes, del más antiguo al más reciente">${formChart}</ol>
+                <div class="profile-chart-legend" aria-hidden="true"><span class="is-win">Victoria</span><span class="is-draw">Empate</span><span class="is-loss">Derrota</span></div>
+            </section>
+            <section class="card profile-balance" aria-labelledby="profile-balance-title">
+                <header class="profile-card-heading">
+                    <div><span>RESULTADOS</span><h2 id="profile-balance-title">Balance</h2></div>
+                </header>
+                <svg class="profile-balance__bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="${item.wins} victorias, ${item.draws} empates y ${item.losses} derrotas">
+                    <rect class="profile-balance__track" x="0" y="0" width="100" height="8"></rect>
+                    <rect class="is-win" x="0" y="0" width="${item.matchesPlayed ? (item.wins / item.matchesPlayed) * 100 : 0}" height="8"></rect>
+                    <rect class="is-draw" x="${item.matchesPlayed ? (item.wins / item.matchesPlayed) * 100 : 0}" y="0" width="${item.matchesPlayed ? (item.draws / item.matchesPlayed) * 100 : 0}" height="8"></rect>
+                    <rect class="is-loss" x="${item.matchesPlayed ? ((item.wins + item.draws) / item.matchesPlayed) * 100 : 0}" y="0" width="${item.matchesPlayed ? (item.losses / item.matchesPlayed) * 100 : 0}" height="8"></rect>
+                </svg>
+                <dl class="profile-balance__rows">
+                    <div><dt><i class="is-win"></i>Victorias</dt><dd>${item.wins}</dd></div>
+                    <div><dt><i class="is-draw"></i>Empates</dt><dd>${item.draws}</dd></div>
+                    <div><dt><i class="is-loss"></i>Derrotas</dt><dd>${item.losses}</dd></div>
+                </dl>
+            </section>
+            <section class="card profile-rankings-card" aria-labelledby="profile-rankings-title">
+                <header class="profile-card-heading">
+                    <div><span>COMPARATIVA DE LIGA</span><h2 id="profile-rankings-title">Tus posiciones</h2></div>
+                    <a href="/rankings">Ver rankings <span aria-hidden="true">›</span></a>
+                </header>
+                <div class="profile-ranking-list">
+                    ${dashboardRankings.map(([label, position, value, category]) => `<a href="/rankings" data-action="open-ranking" data-category="${category}"><span class="profile-ranking-list__position">${position ? `<strong>${position}</strong><small>º</small>` : '<strong>—</strong>'}</span><span><strong>${esc(label)}</strong><small>${esc(value)}</small></span><i aria-hidden="true">›</i></a>`).join('')}
+                </div>
+            </section>
+            <section class="profile-connections" aria-labelledby="profile-connections-title"><header class="profile-card-heading profile-card-heading--standalone"><div><span>COMPAÑEROS Y RIVALES</span><h2 id="profile-connections-title">Conexiones en la liga</h2></div></header>
                 ${renderConnection('Máximo rival', ownProfile ? 'El jugador contra el que más te has enfrentado.' : 'El jugador al que se ha enfrentado más veces.', summary.rival, 'rival')}
                 ${renderConnection('Compañero inseparable', ownProfile ? 'El jugador con el que más has compartido equipo.' : 'El jugador con el que más ha compartido equipo.', summary.teammate, 'teammate')}
             </section>
+        </div>
+        <div class="profile-explanations-wrap">
+            <button class="btn btn--outline btn--wide" data-action="toggle-metric-explanations" aria-expanded="${state.profileExplanations}">${state.profileExplanations ? 'Ocultar cómo se calcula' : 'Cómo se calculan estas métricas'}</button>
+            ${state.profileExplanations ? `<div class="card profile-explanations">${metricExplanations.map(([label, explanation]) => `<div><strong>${esc(label)}</strong><p>${esc(explanation)}</p></div>`).join('')}</div>` : ''}
         </div>
     </section>`;
 }
