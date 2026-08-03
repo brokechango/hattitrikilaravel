@@ -1,0 +1,21 @@
+{
+    frankenphp
+    order php_server before file_server
+}
+
+{$SERVER_NAME} {
+    root * /app/public
+    encode zstd br gzip
+
+    @immutable path /build/assets/*
+    header @immutable Cache-Control "public, max-age=31536000, immutable"
+
+    php_server
+}
+
+# Internal health endpoint for container orchestrators. This port is not
+# published by compose.production.yaml.
+:8080 {
+    root * /app/public
+    php_server
+}

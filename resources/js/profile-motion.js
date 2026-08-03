@@ -1,7 +1,14 @@
 import { animate, hover, inView, stagger } from 'motion';
+import {
+    clearMotionStyles,
+    createMotionRegistry,
+} from './motion-lifecycle';
 
 const easeOut = [0.2, 0.8, 0.2, 1];
-let cleanupTasks = [];
+const motionRegistry = createMotionRegistry();
+const styledElements = new Set();
+const hoveredElements = new Set();
+const hoverTokens = new WeakMap();
 let activeNavigationId = null;
 let revealedKeys = new Set();
 
@@ -24,8 +31,31 @@ export function formatProfileMetric(value, format = 'integer') {
 }
 
 function trackAnimation(animation) {
-    cleanupTasks.push(() => animation.stop());
+    motionRegistry.track(animation);
     return animation;
+}
+
+function trackStyledAnimation(animation, elements, properties) {
+    const targets = elements && typeof elements[Symbol.iterator] === 'function'
+        ? Array.from(elements)
+        : [elements];
+    targets.forEach((element) => styledElements.add(element));
+
+    return motionRegistry.track(animation, () => {
+        targets.forEach((element) => {
+            clearMotionStyles(element, properties);
+            styledElements.delete(element);
+        });
+    });
+}
+
+function isElementVisible(element) {
+    const rect = element.getBoundingClientRect();
+
+    return rect.bottom > 0
+        && rect.top < (globalThis.innerHeight || 0) * 0.94
+        && rect.right > 0
+        && rect.left < (globalThis.innerWidth || 0);
 }
 
 function animateCounters(container) {
@@ -40,47 +70,50 @@ function animateCounters(container) {
                 element.textContent = formatProfileMetric(latest, format);
             },
         });
-        trackAnimation(animation);
+        motionRegistry.track(animation);
     });
 }
 
 function animateProfileCharts(card) {
     const ring = card.querySelector('.profile-donut__value');
     if (ring) {
-        trackAnimation(animate(ring, { strokeDashoffset: [100, 0] }, {
+        trackStyledAnimation(animate(ring, { strokeDashoffset: [100, 0] }, {
             duration: 0.82,
             ease: easeOut,
-        }));
+        }), ring, ['stroke-dashoffset']);
     }
 
     const columns = card.querySelectorAll('.profile-form-chart__bar i');
     if (columns.length) {
-        trackAnimation(animate(columns, {
+        trackStyledAnimation(animate(columns, {
             opacity: [0, 1],
             scaleY: [0.06, 1],
         }, {
             duration: 0.54,
             delay: stagger(0.065),
             ease: easeOut,
-        }));
+        }), columns);
     }
 
     const resultSegments = card.querySelectorAll('.profile-balance__bar rect:not(.profile-balance__track)');
     if (resultSegments.length) {
-        trackAnimation(animate(resultSegments, {
+        trackStyledAnimation(animate(resultSegments, {
             opacity: [0, 1],
             scaleX: [0.02, 1],
         }, {
             duration: 0.58,
             delay: stagger(0.08),
             ease: easeOut,
-        }));
+        }), resultSegments);
     }
 }
 
 export function cleanupProfileDashboardMotion() {
-    cleanupTasks.forEach((cleanup) => cleanup());
-    cleanupTasks = [];
+    motionRegistry.cleanup();
+    styledElements.forEach((element) => clearMotionStyles(element));
+    hoveredElements.forEach((element) => clearMotionStyles(element, ['transform']));
+    styledElements.clear();
+    hoveredElements.clear();
 }
 
 export function setupProfileDashboardMotion(root, options = {}) {
@@ -100,19 +133,22 @@ export function setupProfileDashboardMotion(root, options = {}) {
 
     const dashboard = root.querySelector('.profile-page');
     if (!dashboard || reduceMotion) return;
+    const skipVisibleReveal = Boolean(options.skipVisibleReveal);
 
     const heroItems = dashboard.querySelectorAll('.profile-hero__identity, .profile-hero__numbers');
     if (heroItems.length && !revealedKeys.has('hero')) {
         revealedKeys.add('hero');
-        trackAnimation(animate(heroItems, {
-            opacity: [0, 1],
-            y: [14, 0],
-        }, {
-            duration: 0.46,
-            delay: stagger(0.075),
-            ease: easeOut,
-        }));
-        animateCounters(dashboard.querySelector('.profile-hero'));
+        if (!skipVisibleReveal) {
+            trackStyledAnimation(animate(heroItems, {
+                opacity: [0, 1],
+                y: [14, 0],
+            }, {
+                duration: 0.46,
+                delay: stagger(0.075),
+                ease: easeOut,
+            }), heroItems);
+            animateCounters(dashboard.querySelector('.profile-hero'));
+        }
     }
 
     const revealTargets = dashboard.querySelectorAll([
@@ -125,35 +161,61 @@ export function setupProfileDashboardMotion(root, options = {}) {
         '.profile-explanations-wrap',
     ].join(', '));
 
+    const offscreenTargets = [];
+    const targetKeys = new Map();
+
     revealTargets.forEach((element, index) => {
         const key = `${element.className}:${index}`;
         element.dataset.motionKey = key;
         if (revealedKeys.has(key)) return;
 
-        trackAnimation(animate(element, {
+        if (isElementVisible(element)) {
+            revealedKeys.add(key);
+            if (!skipVisibleReveal) {
+                trackStyledAnimation(animate(element, {
+                    opacity: [0, 1],
+                    y: [22, 0],
+                    scale: [0.988, 1],
+                }, {
+                    duration: 0.5,
+                    delay: Math.min(index, 4) * 0.045,
+                    ease: easeOut,
+                }), element);
+                animateCounters(element);
+                animateProfileCharts(element);
+            }
+            return;
+        }
+
+        styledElements.add(element);
+        motionRegistry.track(animate(element, {
             opacity: 0,
             y: 22,
             scale: 0.988,
         }, { duration: 0 }));
+        offscreenTargets.push(element);
+        targetKeys.set(element, key);
     });
 
-    const stopRevealObserver = inView(revealTargets, (element) => {
-        const key = element.dataset.motionKey;
-        if (!key || revealedKeys.has(key)) return;
-        revealedKeys.add(key);
+    if (offscreenTargets.length) {
+        const stopRevealObserver = inView(offscreenTargets, (element) => {
+            const key = targetKeys.get(element);
+            if (!key || revealedKeys.has(key)) return;
+            revealedKeys.add(key);
 
-        trackAnimation(animate(element, {
-            opacity: [0, 1],
-            y: [22, 0],
-            scale: [0.988, 1],
-        }, {
-            duration: 0.5,
-            ease: easeOut,
-        }));
-        animateCounters(element);
-        animateProfileCharts(element);
-    }, { amount: 0.14, margin: '0px 0px -8% 0px' });
-    cleanupTasks.push(stopRevealObserver);
+            trackStyledAnimation(animate(element, {
+                opacity: [0, 1],
+                y: [22, 0],
+                scale: [0.988, 1],
+            }, {
+                duration: 0.5,
+                ease: easeOut,
+            }), element);
+            animateCounters(element);
+            animateProfileCharts(element);
+        }, { amount: 0.14, margin: '0px 0px -8% 0px' });
+        motionRegistry.add(stopRevealObserver);
+    }
 
     const interactiveCards = dashboard.querySelectorAll([
         '.profile-stat',
@@ -162,25 +224,35 @@ export function setupProfileDashboardMotion(root, options = {}) {
     ].join(', '));
     if (interactiveCards.length) {
         const stopHover = hover(interactiveCards, (element) => {
-            const enterAnimation = animate(element, {
+            hoveredElements.add(element);
+            hoverTokens.set(element, {});
+            const enterAnimation = trackAnimation(animate(element, {
                 y: -3,
                 scale: 1.012,
             }, {
                 duration: 0.18,
                 ease: easeOut,
-            });
+            }));
 
             return () => {
-                enterAnimation.stop();
-                trackAnimation(animate(element, {
+                hoveredElements.delete(element);
+                motionRegistry.stop(enterAnimation);
+                const leaveToken = {};
+                hoverTokens.set(element, leaveToken);
+                motionRegistry.track(animate(element, {
                     y: 0,
                     scale: 1,
                 }, {
                     duration: 0.2,
                     ease: easeOut,
-                }));
+                }), () => {
+                    if (hoverTokens.get(element) !== leaveToken) return;
+
+                    hoverTokens.delete(element);
+                    clearMotionStyles(element, ['transform']);
+                });
             };
         });
-        cleanupTasks.push(stopHover);
+        motionRegistry.add(stopHover);
     }
 }

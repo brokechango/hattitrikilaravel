@@ -1,5 +1,9 @@
 import { animate, animateView, inView } from 'motion';
 import {
+    clearMotionStyles,
+    createMotionRegistry,
+} from './motion-lifecycle';
+import {
     cleanupProfileDashboardMotion,
     setupProfileDashboardMotion,
 } from './profile-motion';
@@ -14,6 +18,7 @@ const MOTION_GROUPS = [
     { selector: '.home-page > section:not(.league-overview):not(.home-season)' },
     { selector: '.home-season__heading' },
     { selector: '.stats-grid > .stat-card' },
+    { selector: '.feature-grid > .feature-card' },
     { selector: '.history-sticky' },
     { selector: '.history-count', content: true },
     { selector: '.match-list > .match-row', content: true },
@@ -21,6 +26,8 @@ const MOTION_GROUPS = [
     { selector: '.rankings-filters-toggle' },
     { selector: '.ranking-view-selector' },
     { selector: '.ranking-table > .ranking-row', content: true },
+    { selector: '.ranking-tabs', content: true },
+    { selector: '.ranking-list > .ranking-row', content: true },
     { selector: '.match-scoreboard' },
     { selector: '.match-detail-section' },
     { selector: '.match-mvp' },
@@ -30,6 +37,9 @@ const MOTION_GROUPS = [
     { selector: '.manager-page--listing > .manager-results-count', content: true },
     { selector: '.manager-table tbody > tr', content: true },
     { selector: '.manager-page--form > .manager-form', content: true },
+    { selector: '.manager-form > .manager-form__main', content: true },
+    { selector: '.manager-tool-panel', content: true },
+    { selector: '.selection-grid > .select-player', content: true },
     { selector: '.match-editor__progress' },
     { selector: '.match-editor__body', content: true },
     { selector: '.randomizer-workspace > .randomizer-roster' },
@@ -42,7 +52,8 @@ const MOTION_GROUPS = [
     { selector: '.auth-card', content: true },
 ];
 
-let cleanupTasks = [];
+const motionRegistry = createMotionRegistry();
+const styledElements = new Set();
 let revealedKeys = new Set();
 let activeNavigationId = null;
 
@@ -53,9 +64,9 @@ export function isMotionTargetVisible(rect, viewportHeight, viewportWidth = glob
         && rect.left < viewportWidth;
 }
 
-function trackAnimation(animation) {
-    cleanupTasks.push(() => animation.stop());
-    return animation;
+function clearRevealStyles(element) {
+    clearMotionStyles(element);
+    styledElements.delete(element);
 }
 
 function rememberNavigation(navigationId) {
@@ -67,7 +78,8 @@ function rememberNavigation(navigationId) {
 }
 
 function revealElement(element, delay = 0) {
-    return trackAnimation(animate(element, {
+    styledElements.add(element);
+    return motionRegistry.track(animate(element, {
         opacity: [0, 1],
         y: [16, 0],
         scale: [0.992, 1],
@@ -75,11 +87,12 @@ function revealElement(element, delay = 0) {
         duration: REVEAL_DURATION,
         delay,
         ease: EASE_OUT,
-    }));
+    }), () => clearRevealStyles(element));
 }
 
 function prepareOffscreenElement(element) {
-    trackAnimation(animate(element, {
+    styledElements.add(element);
+    motionRegistry.track(animate(element, {
         opacity: 0,
         y: 18,
         scale: 0.992,
@@ -89,6 +102,8 @@ function prepareOffscreenElement(element) {
 function setupRevealGroup(root, group, context) {
     const elements = [...root.querySelectorAll(group.selector)]
         .filter((element) => !element.closest('.profile-page') || element.matches('.page-header'));
+    const offscreenElements = [];
+    const offscreenKeys = new Map();
 
     elements.forEach((element, index) => {
         const revision = group.content ? context.contentRevision : 0;
@@ -98,23 +113,33 @@ function setupRevealGroup(root, group, context) {
         const rect = element.getBoundingClientRect();
         if (isMotionTargetVisible(rect, globalThis.innerHeight || 0)) {
             revealedKeys.add(key);
-            revealElement(element, Math.min(index, MAX_STAGGERED_ITEMS - 1) * 0.032);
+            if (!context.skipVisibleReveal) {
+                revealElement(element, Math.min(index, MAX_STAGGERED_ITEMS - 1) * 0.032);
+            }
             return;
         }
 
         prepareOffscreenElement(element);
-        const stopObserver = inView(element, (target) => {
-            if (revealedKeys.has(key)) return;
-            revealedKeys.add(key);
-            revealElement(target);
-        }, { amount: 0.14, margin: '0px 0px -8% 0px' });
-        cleanupTasks.push(stopObserver);
+        offscreenElements.push(element);
+        offscreenKeys.set(element, key);
     });
+
+    if (!offscreenElements.length) return;
+
+    const stopObserver = inView(offscreenElements, (target) => {
+        const key = offscreenKeys.get(target);
+        if (!key || revealedKeys.has(key)) return;
+
+        revealedKeys.add(key);
+        revealElement(target);
+    }, { amount: 0.14, margin: '0px 0px -8% 0px' });
+    motionRegistry.add(stopObserver);
 }
 
 export function cleanupAppMotion() {
-    cleanupTasks.forEach((cleanup) => cleanup());
-    cleanupTasks = [];
+    motionRegistry.cleanup();
+    styledElements.forEach((element) => clearMotionStyles(element));
+    styledElements.clear();
     cleanupProfileDashboardMotion();
 }
 
@@ -128,10 +153,15 @@ export function setupAppMotion(root, context = {}) {
     setupProfileDashboardMotion(root, {
         navigationId,
         reduceMotion,
+        skipVisibleReveal: Boolean(context.skipVisibleReveal),
     });
     if (reduceMotion) return;
 
-    const motionContext = { contentRevision, navigationId };
+    const motionContext = {
+        contentRevision,
+        navigationId,
+        skipVisibleReveal: Boolean(context.skipVisibleReveal),
+    };
     MOTION_GROUPS.forEach((group) => setupRevealGroup(root, group, motionContext));
 }
 

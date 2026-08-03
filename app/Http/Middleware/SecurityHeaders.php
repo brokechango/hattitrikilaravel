@@ -6,19 +6,24 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 final class SecurityHeaders
 {
     public function handle(Request $request, Closure $next): Response
     {
+        $nonce = Vite::useCspNonce();
+
         /** @var Response $response */
         $response = $next($request);
         $viteOrigin = $this->viteDevelopmentOrigin();
-        $scriptSources = trim("'self' {$viteOrigin}");
-        $styleSources = trim("'self'".($viteOrigin === '' ? '' : " 'unsafe-inline' {$viteOrigin}"));
+        $scriptSources = trim("'self' 'nonce-{$nonce}' {$viteOrigin}");
+        $styleSources = trim(
+            "'self' 'nonce-{$nonce}'".($viteOrigin === '' ? '' : " 'unsafe-inline' {$viteOrigin}"),
+        );
         $connectSources = trim(
-            "'self' https://*.supabase.co wss://*.supabase.co".
+            "'self'".
             ($viteOrigin === '' ? '' : " {$viteOrigin} ws://localhost:5173 ws://127.0.0.1:5173"),
         );
 

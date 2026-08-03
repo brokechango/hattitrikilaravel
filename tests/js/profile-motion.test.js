@@ -24,6 +24,8 @@ describe('profile motion metric formatting', () => {
         expect(profileMotionSource).toContain('navigationId !== activeNavigationId');
         expect(profileMotionSource).toContain("revealedKeys.has('hero')");
         expect(profileMotionSource).toContain('revealedKeys.has(key)');
-        expect(profileMotionSource).toContain('cleanupTasks.push(stopRevealObserver)');
+        expect(profileMotionSource).toContain('motionRegistry.add(stopRevealObserver)');
+        expect(profileMotionSource).toContain('trackStyledAnimation');
+        expect(profileMotionSource).toContain('skipVisibleReveal');
     });
 });

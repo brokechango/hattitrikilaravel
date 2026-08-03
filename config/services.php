@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'supabase' => [
+        'url' => env('SUPABASE_URL'),
+        'publishable_key' => env('SUPABASE_PUBLISHABLE_KEY'),
+        'timeout' => (int) env('SUPABASE_REQUEST_TIMEOUT', 15),
+    ],
+
 ];
