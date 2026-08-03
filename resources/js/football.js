@@ -25,11 +25,22 @@ export function matchWinner(match) {
         return 'B';
     }
 
-    if (match.teamAPenaltyScore != null && match.teamBPenaltyScore != null) {
+    if (
+        match.teamAPenaltyScore != null
+        && match.teamBPenaltyScore != null
+        && match.teamAPenaltyScore !== match.teamBPenaltyScore
+    ) {
         return match.teamAPenaltyScore > match.teamBPenaltyScore ? 'A' : 'B';
     }
 
     return null;
+}
+
+export function isPenaltyShootout(match) {
+    return match.teamAScore === match.teamBScore
+        && match.teamAPenaltyScore != null
+        && match.teamBPenaltyScore != null
+        && match.teamAPenaltyScore !== match.teamBPenaltyScore;
 }
 
 export function aggregateGoals(goals, participants = []) {
@@ -298,9 +309,15 @@ export function calculatePlayerStats(snapshot) {
                 return 'draw';
             }
 
-            return participant.team === winner ? 'win' : 'loss';
+            if (participant.team !== winner) {
+                return 'loss';
+            }
+
+            return isPenaltyShootout(match) ? 'penalty-win' : 'win';
         });
-        const wins = results.filter((result) => result === 'win').length;
+        const regularWins = results.filter((result) => result === 'win').length;
+        const penaltyWins = results.filter((result) => result === 'penalty-win').length;
+        const wins = regularWins + penaltyWins;
         const draws = results.filter((result) => result === 'draw').length;
         const goals = matches.reduce(
             (total, match) => total + match.goals
@@ -331,7 +348,11 @@ export function calculatePlayerStats(snapshot) {
                 return 'draw';
             }
 
-            return participant.team === winner ? 'win' : 'loss';
+            if (participant.team !== winner) {
+                return 'loss';
+            }
+
+            return isPenaltyShootout(match) ? 'penalty-win' : 'win';
         });
         recentForm.push(...Array(5 - recentForm.length).fill('pending'));
 
@@ -339,6 +360,8 @@ export function calculatePlayerStats(snapshot) {
             player,
             matchesPlayed: played.length,
             wins,
+            regularWins,
+            penaltyWins,
             draws,
             losses: played.length - wins - draws,
             goals,

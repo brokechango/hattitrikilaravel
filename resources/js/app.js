@@ -51,6 +51,11 @@ import {
     mapSignedAvatarUrls,
     shouldRefreshAvatarUrls,
 } from './avatar-urls';
+import {
+    captureViewScroll,
+    restoreViewScroll,
+    shouldPreserveViewScroll,
+} from './view-scroll';
 
 const root = document.querySelector('#app');
 let pullRefreshBusy = false;
@@ -1185,7 +1190,7 @@ function renderRankingRow(entry, index, definition, rankingRowClasses) {
     return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ' ranking-row--podium' : ''}" href="/rankings/jugador/${toHex(entry.player.id)}">
         <span class="rank">${rankNumber}</span>${avatar(entry.player)}<span class="ranking-name">${esc(entry.player.name)}</span>
         ${definition.columns.map(([, value, primary]) => `<span class="ranking-metric${primary ? ' ranking-metric--primary' : ''}">${esc(value(entry))}</span>`).join('')}
-        ${state.rankingView === 'detailed' ? `<span class="recent-form"><span class="recent-form__label">RACHA</span>${entry.recentForm.map((result) => `<span class="form-dot form-dot--${result}" title="${result === 'win' ? 'Victoria' : result === 'draw' ? 'Empate' : result === 'loss' ? 'Derrota' : result === 'none' ? 'No jugó' : 'Partido pendiente'}">${result === 'win' ? 'V' : result === 'draw' ? 'E' : result === 'loss' ? 'D' : ''}</span>`).join('')}</span>` : ''}
+        ${state.rankingView === 'detailed' ? `<span class="recent-form"><span class="recent-form__label">RACHA</span>${entry.recentForm.map((result) => `<span class="form-dot form-dot--${result}" title="${result === 'win' ? 'Victoria' : result === 'penalty-win' ? 'Victoria por penaltis' : result === 'draw' ? 'Empate' : result === 'loss' ? 'Derrota' : result === 'none' ? 'No jugó' : 'Partido pendiente'}">${result === 'win' ? 'V' : result === 'penalty-win' ? 'VP' : result === 'draw' ? 'E' : result === 'loss' ? 'D' : ''}</span>`).join('')}</span>` : ''}
     </a>`;
 }
 
@@ -1274,6 +1279,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
     ];
     const formLabels = {
         win: ['V', 'Victoria', 'win'],
+        'penalty-win': ['VP', 'Victoria por penaltis', 'penalty-win'],
         draw: ['E', 'Empate', 'draw'],
         loss: ['D', 'Derrota', 'loss'],
         none: ['—', 'No jugó', 'none'],
@@ -1285,10 +1291,30 @@ function renderPlayerProfile(playerId, ownProfile = false) {
             <span class="profile-form-chart__bar"><i></i></span><strong>${shortLabel}</strong>
         </li>`;
     }).join('');
+    const visibleFormResults = new Set(item.recentForm);
+    const formLegend = [
+        ['win', 'is-win', 'Victoria'],
+        ['penalty-win', 'is-penalty-win', 'Victoria por penaltis'],
+        ['draw', 'is-draw', 'Empate'],
+        ['loss', 'is-loss', 'Derrota'],
+    ].filter(([result]) => visibleFormResults.has(result))
+        .map(([, modifier, label]) => `<span class="${modifier}">${label}</span>`)
+        .join('');
+    const resultPercentage = (value) => item.matchesPlayed
+        ? (value / item.matchesPlayed) * 100
+        : 0;
+    const regularWinWidth = resultPercentage(item.regularWins);
+    const penaltyWinWidth = resultPercentage(item.penaltyWins);
+    const drawWidth = resultPercentage(item.draws);
+    const lossWidth = resultPercentage(item.losses);
+    const penaltyWinOffset = regularWinWidth;
+    const drawOffset = penaltyWinOffset + penaltyWinWidth;
+    const lossOffset = drawOffset + drawWidth;
+    const balanceAria = `${item.regularWins} victorias, ${item.penaltyWins} victorias por penaltis${item.draws ? `, ${item.draws} empates` : ''} y ${item.losses} derrotas`;
     const metricExplanations = [
         ...dashboardMetrics.map(([label, , , , explanation]) => [label, explanation]),
         ['Porcentaje de victorias', 'Victorias divididas entre los partidos jugados, redondeado al número entero más cercano.'],
-        ['Forma reciente', 'Representa, del partido más antiguo al más reciente, victorias, empates, derrotas y jornadas en las que no participó.'],
+        ['Forma reciente', 'Representa, del partido más antiguo al más reciente, victorias, victorias por penaltis, empates, derrotas y jornadas en las que no participó.'],
     ];
     const avatarContent = state.avatars[playerId]
         ? `<button class="profile-avatar-button" type="button" data-action="view-avatar" data-url="${esc(state.avatars[playerId])}" data-player-id="${esc(playerId)}" data-name="${esc(item.player.name)}">${avatar(item.player, true)}</button>`
@@ -1344,21 +1370,23 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                     <strong class="profile-form-card__score${formScore > 0 ? ' is-positive' : formScore < 0 ? ' is-negative' : ''}">${esc(formScoreLabel)} pts</strong>
                 </header>
                 <ol class="profile-form-chart" aria-label="Resultados recientes, del más antiguo al más reciente">${formChart}</ol>
-                <div class="profile-chart-legend" aria-hidden="true"><span class="is-win">Victoria</span><span class="is-draw">Empate</span><span class="is-loss">Derrota</span></div>
+                <div class="profile-chart-legend" aria-hidden="true">${formLegend}</div>
             </section>
             <section class="card profile-balance" aria-labelledby="profile-balance-title">
                 <header class="profile-card-heading">
                     <div><span>RESULTADOS</span><h2 id="profile-balance-title">Balance</h2></div>
                 </header>
-                <svg class="profile-balance__bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="${item.wins} victorias, ${item.draws} empates y ${item.losses} derrotas">
+                <svg class="profile-balance__bar" viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="${esc(balanceAria)}">
                     <rect class="profile-balance__track" x="0" y="0" width="100" height="8"></rect>
-                    <rect class="is-win" x="0" y="0" width="${item.matchesPlayed ? (item.wins / item.matchesPlayed) * 100 : 0}" height="8"></rect>
-                    <rect class="is-draw" x="${item.matchesPlayed ? (item.wins / item.matchesPlayed) * 100 : 0}" y="0" width="${item.matchesPlayed ? (item.draws / item.matchesPlayed) * 100 : 0}" height="8"></rect>
-                    <rect class="is-loss" x="${item.matchesPlayed ? ((item.wins + item.draws) / item.matchesPlayed) * 100 : 0}" y="0" width="${item.matchesPlayed ? (item.losses / item.matchesPlayed) * 100 : 0}" height="8"></rect>
+                    <rect class="is-win" x="0" y="0" width="${regularWinWidth}" height="8"></rect>
+                    <rect class="is-penalty-win" x="${penaltyWinOffset}" y="0" width="${penaltyWinWidth}" height="8"></rect>
+                    ${item.draws ? `<rect class="is-draw" x="${drawOffset}" y="0" width="${drawWidth}" height="8"></rect>` : ''}
+                    <rect class="is-loss" x="${lossOffset}" y="0" width="${lossWidth}" height="8"></rect>
                 </svg>
                 <dl class="profile-balance__rows">
-                    <div><dt><i class="is-win"></i>Victorias</dt><dd>${item.wins}</dd></div>
-                    <div><dt><i class="is-draw"></i>Empates</dt><dd>${item.draws}</dd></div>
+                    <div><dt><i class="is-win"></i>Victorias</dt><dd>${item.regularWins}</dd></div>
+                    <div><dt><i class="is-penalty-win"></i>Victorias por penaltis</dt><dd>${item.penaltyWins}</dd></div>
+                    ${item.draws ? `<div><dt><i class="is-draw"></i>Empates</dt><dd>${item.draws}</dd></div>` : ''}
                     <div><dt><i class="is-loss"></i>Derrotas</dt><dd>${item.losses}</dd></div>
                 </dl>
             </section>
@@ -1683,6 +1711,9 @@ function render(reason = 'state') {
         return;
     }
     const route = currentRoute();
+    const scrollPosition = shouldPreserveViewScroll(lastRenderedRoute, route)
+        ? captureViewScroll(root.querySelector('#main-content'))
+        : null;
     const routeChanged = lastRenderedRoute !== route;
     if (routeChanged) {
         motionNavigationId += 1;
@@ -1712,6 +1743,7 @@ function render(reason = 'state') {
         return;
     }
     root.innerHTML = shell(page);
+    restoreViewScroll(root.querySelector('#main-content'), scrollPosition);
     void activateAppMotion(reason);
     lastRenderedRoute = route;
     state.selectionMotion = null;

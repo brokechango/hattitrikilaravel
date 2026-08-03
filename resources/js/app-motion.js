@@ -1,4 +1,4 @@
-import { animate, animateView, inView } from 'motion';
+import { animate, inView } from 'motion';
 import {
     cleanupProfileDashboardMotion,
     setupProfileDashboardMotion,
@@ -7,6 +7,9 @@ import {
 const EASE_OUT = [0.2, 0.8, 0.2, 1];
 const REVEAL_DURATION = 0.44;
 const MAX_STAGGERED_ITEMS = 6;
+const VIEW_CONTENT_SELECTOR = '.page';
+const ROUTE_TRANSITION_DURATION = 0.22;
+const CONTENT_TRANSITION_DURATION = 0.16;
 
 const MOTION_GROUPS = [
     { selector: '.page-header' },
@@ -51,6 +54,22 @@ export function isMotionTargetVisible(rect, viewportHeight, viewportWidth = glob
         && rect.top < viewportHeight * 0.94
         && rect.right > 0
         && rect.left < viewportWidth;
+}
+
+export function shouldRevealMotionGroups(renderReason = 'state') {
+    return renderReason !== 'route';
+}
+
+export function viewTransitionKeyframes(kind = 'content', direction = 0) {
+    if (kind === 'route') {
+        return { y: [5, 0] };
+    }
+
+    if (direction) {
+        return { x: [Math.sign(direction) * 8, 0] };
+    }
+
+    return { y: [2, 0] };
 }
 
 function trackAnimation(animation) {
@@ -128,8 +147,9 @@ export function setupAppMotion(root, context = {}) {
     setupProfileDashboardMotion(root, {
         navigationId,
         reduceMotion,
+        suppressEntrance: !shouldRevealMotionGroups(context.renderReason),
     });
-    if (reduceMotion) return;
+    if (reduceMotion || !shouldRevealMotionGroups(context.renderReason)) return;
 
     const motionContext = { contentRevision, navigationId };
     MOTION_GROUPS.forEach((group) => setupRevealGroup(root, group, motionContext));
@@ -150,26 +170,22 @@ export async function transitionAppView(update, options = {}) {
     };
 
     try {
-        const transition = animateView(applyUpdate, {
-            duration: kind === 'route' ? 0.3 : 0.2,
-        });
+        applyUpdate();
+        await Promise.resolve();
 
-        if (kind === 'route') {
-            transition
-                .old({ opacity: 0, transform: 'translateY(-7px)' })
-                .new({ opacity: 1, transform: ['translateY(9px)', 'none'] });
-        } else if (options.direction) {
-            const offset = Math.sign(options.direction) * 9;
-            transition
-                .old({ opacity: 0, transform: `translateX(${-offset}px)` })
-                .new({ opacity: 1, transform: [`translateX(${offset}px)`, 'none'] });
-        } else {
-            transition
-                .old({ opacity: 0.72 })
-                .new({ opacity: 1 });
-        }
+        const content = globalThis.document?.querySelector(VIEW_CONTENT_SELECTOR);
+        if (!content) return;
 
-        await transition;
+        await animate(
+            content,
+            viewTransitionKeyframes(kind, options.direction),
+            {
+                duration: kind === 'route'
+                    ? ROUTE_TRANSITION_DURATION
+                    : CONTENT_TRANSITION_DURATION,
+                ease: EASE_OUT,
+            },
+        );
     } catch {
         applyUpdate();
     }

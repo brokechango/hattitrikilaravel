@@ -6,6 +6,7 @@ import {
     fromHex,
     generateBalancedTeams,
     isGoalsPerMatchEligible,
+    isPenaltyShootout,
     matchWinner,
     PLAYER_PERFORMANCE_SCOPES,
     playerPerformanceScore,
@@ -137,7 +138,10 @@ describe('football calculations', () => {
     it('decides regular and penalty winners', () => {
         expect(matchWinner(snapshot.matches[1])).toBe('A');
         expect(matchWinner(snapshot.matches[0])).toBe('A');
+        expect(isPenaltyShootout(snapshot.matches[0])).toBe(true);
+        expect(isPenaltyShootout(snapshot.matches[1])).toBe(false);
         expect(matchWinner({ ...snapshot.matches[0], teamAPenaltyScore: null, teamBPenaltyScore: null })).toBeNull();
+        expect(matchWinner({ ...snapshot.matches[0], teamAPenaltyScore: 3, teamBPenaltyScore: 3 })).toBeNull();
     });
 
     it('calculates goals, form and evenly split goalkeeper totals', () => {
@@ -149,10 +153,13 @@ describe('football calculations', () => {
         expect(ana).toMatchObject({
             matchesPlayed: 2,
             wins: 2,
+            regularWins: 1,
+            penaltyWins: 1,
+            draws: 0,
             goals: 2,
             goalkeeperMatches: 1,
             goalsAgainst: 0,
-            recentForm: ['win', 'win', 'pending', 'pending', 'pending'],
+            recentForm: ['win', 'penalty-win', 'pending', 'pending', 'pending'],
         });
         expect(bea.goalsAgainst).toBe(1);
         expect(carla.goalsAgainst).toBe(1);

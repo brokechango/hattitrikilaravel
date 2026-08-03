@@ -7,7 +7,11 @@ import {
     prefersReducedMotion,
     shouldAnimateRoute,
 } from '../../resources/js/motion';
-import { isMotionTargetVisible } from '../../resources/js/app-motion';
+import {
+    isMotionTargetVisible,
+    shouldRevealMotionGroups,
+    viewTransitionKeyframes,
+} from '../../resources/js/app-motion';
 
 const css = readFileSync(new URL('../../resources/css/app.css', import.meta.url), 'utf8');
 const appMotionSource = readFileSync(new URL('../../resources/js/app-motion.js', import.meta.url), 'utf8');
@@ -29,15 +33,29 @@ describe('motion contract', () => {
         expect(prefersReducedMotion({ matches: false })).toBe(false);
     });
 
-    it('delegates page entry to the route transition orchestrator', () => {
+    it('enters the new page without crossfading the old screen', () => {
         const pageRule = css.match(/\.page\s*\{[^}]*\}/s)?.[0] || '';
+        const transitionSource = appMotionSource.match(/export async function transitionAppView[\s\S]*$/)?.[0] || '';
 
         expect(pageRule).not.toContain('animation:');
         expect(css).not.toContain('.pull-refresh-content--route-enter > .page');
         expect(appMotionSource).toContain("kind === 'route'");
-        expect(appMotionSource).toContain('animateView');
+        expect(appMotionSource).not.toContain('animateView');
+        expect(transitionSource).toContain('globalThis.document?.querySelector(VIEW_CONTENT_SELECTOR)');
+        expect(transitionSource).not.toContain('opacity');
+        expect(css).not.toContain('::view-transition-');
+        expect(viewTransitionKeyframes('route')).toEqual({ y: [5, 0] });
+        expect(viewTransitionKeyframes('content', 1)).toEqual({ x: [8, 0] });
+        expect(viewTransitionKeyframes('content', -1)).toEqual({ x: [-8, 0] });
         expect(css).not.toContain('page-enter');
         expect(css).not.toContain('ranking-dialog-mobile-in');
+    });
+
+    it('avoids replaying child reveals during a route transition', () => {
+        expect(shouldRevealMotionGroups('route')).toBe(false);
+        expect(shouldRevealMotionGroups('content')).toBe(true);
+        expect(shouldRevealMotionGroups('state')).toBe(true);
+        expect(appMotionSource).toContain('suppressEntrance: !shouldRevealMotionGroups(context.renderReason)');
     });
 
     it('waits to reveal offscreen targets until they enter the viewport', () => {

@@ -92,6 +92,8 @@ export function setupProfileDashboardMotion(root, options = {}) {
     const navigationId = typeof options === 'object'
         ? Number(options.navigationId) || 0
         : 0;
+    const suppressEntrance = typeof options === 'object'
+        && Boolean(options.suppressEntrance);
 
     if (navigationId !== activeNavigationId) {
         activeNavigationId = navigationId;
@@ -104,14 +106,16 @@ export function setupProfileDashboardMotion(root, options = {}) {
     const heroItems = dashboard.querySelectorAll('.profile-hero__identity, .profile-hero__numbers');
     if (heroItems.length && !revealedKeys.has('hero')) {
         revealedKeys.add('hero');
-        trackAnimation(animate(heroItems, {
-            opacity: [0, 1],
-            y: [14, 0],
-        }, {
-            duration: 0.46,
-            delay: stagger(0.075),
-            ease: easeOut,
-        }));
+        if (!suppressEntrance) {
+            trackAnimation(animate(heroItems, {
+                opacity: [0, 1],
+                y: [14, 0],
+            }, {
+                duration: 0.46,
+                delay: stagger(0.075),
+                ease: easeOut,
+            }));
+        }
         animateCounters(dashboard.querySelector('.profile-hero'));
     }
 
@@ -130,6 +134,13 @@ export function setupProfileDashboardMotion(root, options = {}) {
         element.dataset.motionKey = key;
         if (revealedKeys.has(key)) return;
 
+        if (suppressEntrance) {
+            revealedKeys.add(key);
+            animateCounters(element);
+            animateProfileCharts(element);
+            return;
+        }
+
         trackAnimation(animate(element, {
             opacity: 0,
             y: 22,
@@ -137,23 +148,25 @@ export function setupProfileDashboardMotion(root, options = {}) {
         }, { duration: 0 }));
     });
 
-    const stopRevealObserver = inView(revealTargets, (element) => {
-        const key = element.dataset.motionKey;
-        if (!key || revealedKeys.has(key)) return;
-        revealedKeys.add(key);
+    if (!suppressEntrance) {
+        const stopRevealObserver = inView(revealTargets, (element) => {
+            const key = element.dataset.motionKey;
+            if (!key || revealedKeys.has(key)) return;
+            revealedKeys.add(key);
 
-        trackAnimation(animate(element, {
-            opacity: [0, 1],
-            y: [22, 0],
-            scale: [0.988, 1],
-        }, {
-            duration: 0.5,
-            ease: easeOut,
-        }));
-        animateCounters(element);
-        animateProfileCharts(element);
-    }, { amount: 0.14, margin: '0px 0px -8% 0px' });
-    cleanupTasks.push(stopRevealObserver);
+            trackAnimation(animate(element, {
+                opacity: [0, 1],
+                y: [22, 0],
+                scale: [0.988, 1],
+            }, {
+                duration: 0.5,
+                ease: easeOut,
+            }));
+            animateCounters(element);
+            animateProfileCharts(element);
+        }, { amount: 0.14, margin: '0px 0px -8% 0px' });
+        cleanupTasks.push(stopRevealObserver);
+    }
 
     const interactiveCards = dashboard.querySelectorAll([
         '.profile-stat',

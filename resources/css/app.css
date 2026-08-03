@@ -2169,6 +2169,7 @@ noscript {
 }
 
 .form-dot--win { background: #187a4c; }
+.form-dot--penalty-win { background: var(--gold); color: var(--black); }
 .form-dot--draw { background: #d1d7de; color: var(--black); }
 .form-dot--loss { background: var(--red); }
 .form-dot--none { background: #8a949e; color: var(--black); }
@@ -3167,6 +3168,12 @@ noscript {
     background: linear-gradient(#c7d0da, #75879a);
 }
 
+.profile-form-chart__item--penalty-win .profile-form-chart__bar i {
+    height: 88%;
+    background: linear-gradient(var(--gold-light), var(--gold));
+    box-shadow: 0 0 20px rgb(242 190 62 / 10%);
+}
+
 .profile-form-chart__item--loss .profile-form-chart__bar i {
     height: 22%;
     background: linear-gradient(#de5a66, var(--red));
@@ -3213,6 +3220,7 @@ noscript {
 }
 
 .profile-chart-legend .is-win::before { background: #45b978; }
+.profile-chart-legend .is-penalty-win::before { background: var(--gold); }
 .profile-chart-legend .is-draw::before { background: #b9c3cd; }
 .profile-chart-legend .is-loss::before { background: var(--red); }
 
@@ -3231,6 +3239,7 @@ noscript {
 
 .profile-balance__track { fill: rgb(111 137 163 / 15%); }
 .profile-balance__bar .is-win { fill: #45b978; }
+.profile-balance__bar .is-penalty-win { fill: var(--gold); }
 .profile-balance__bar .is-draw { fill: #b9c3cd; }
 .profile-balance__bar .is-loss { fill: var(--red); }
 
@@ -3274,6 +3283,7 @@ noscript {
 }
 
 .profile-balance__rows dt .is-win { background: #45b978; }
+.profile-balance__rows dt .is-penalty-win { background: var(--gold); }
 .profile-balance__rows dt .is-draw { background: #b9c3cd; }
 .profile-balance__rows dt .is-loss { background: var(--red); }
 
