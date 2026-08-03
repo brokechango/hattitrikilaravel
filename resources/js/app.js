@@ -1228,12 +1228,12 @@ function renderPlayerProfile(playerId, ownProfile = false) {
         return index >= 0 ? index + 1 : null;
     };
     const dashboardMetrics = [
-        ['Partidos', item.matchesPlayed, item.matchesPlayed, 'integer', 'Partidos en los que el jugador aparece en una alineación.', 'matches'],
-        ['Goles', item.goals, item.goals, 'integer', 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals'],
-        ['Goles / partido', formatDecimal(item.goalsPerMatch), item.goalsPerMatch, 'decimal', 'Media de goles marcados por cada partido jugado.', 'average'],
-        ['Victorias', item.wins, item.wins, 'integer', 'Partidos jugados que terminó ganando su equipo.', 'wins'],
-        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos.', 'form'],
-        ['Votos MVP', item.mvpVotes, item.mvpVotes, 'integer', 'Votos recibidos en partidos con la elección de MVP habilitada.', 'mvp'],
+        ['Partidos', item.matchesPlayed, item.matchesPlayed, 'integer', 'Partidos en los que el jugador aparece en una alineación.', 'matches', 'most-played'],
+        ['Goles', item.goals, item.goals, 'integer', 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals', 'top-scorer'],
+        ['Goles / partido', formatDecimal(item.goalsPerMatch), item.goalsPerMatch, 'decimal', 'Media de goles marcados por cada partido jugado.', 'average', 'goals-per-match'],
+        ['Victorias', item.wins, item.wins, 'integer', 'Partidos jugados que terminó ganando su equipo.', 'wins', 'most-wins'],
+        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos.', 'form', 'player-on-form'],
+        ['Votos MVP', item.mvpVotes, item.mvpVotes, 'integer', 'Votos recibidos en partidos con la elección de MVP habilitada.', 'mvp', 'people-favourite'],
     ];
     const dashboardRankings = [
         ['Goleadores', rankPosition('top-scorer'), `${item.goals} ${item.goals === 1 ? 'gol' : 'goles'}`, 'top-scorer'],
@@ -1292,7 +1292,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                     <span class="profile-card-heading__meta">${esc(item.matchesPlayed)} PJ</span>
                 </header>
                 <div class="profile-overview__metrics">
-                    ${dashboardMetrics.map(([label, value, motionValue, motionFormat, , modifier]) => `<div class="profile-stat profile-stat--${modifier}"><span class="profile-stat__icon" aria-hidden="true"></span><strong data-motion-number="${esc(motionValue)}" data-motion-format="${esc(motionFormat)}">${esc(value)}</strong><small>${esc(label)}</small></div>`).join('')}
+                    ${dashboardMetrics.map(([label, value, motionValue, motionFormat, , modifier, rankingCategory]) => `<div class="profile-stat profile-stat--${modifier}"><span class="profile-stat__icon" aria-hidden="true">${RANKING_SYMBOLS[rankingCategory] || '⚽'}</span><strong data-motion-number="${esc(motionValue)}" data-motion-format="${esc(motionFormat)}">${esc(value)}</strong><small>${esc(label)}</small></div>`).join('')}
                 </div>
             </section>
             <section class="card profile-winrate" aria-labelledby="profile-winrate-title">

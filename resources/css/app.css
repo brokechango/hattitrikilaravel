@@ -2929,28 +2929,19 @@ noscript {
 }
 
 .profile-stat__icon {
-    width: 8px;
-    height: 8px;
-    margin-bottom: 7px;
-    border: 2px solid var(--outline);
-    border-radius: 50%;
-}
-
-.profile-stat--goals .profile-stat__icon,
-.profile-stat--average .profile-stat__icon {
-    border-color: var(--gold);
-}
-
-.profile-stat--wins .profile-stat__icon {
-    border-color: #45b978;
-}
-
-.profile-stat--form .profile-stat__icon {
-    border-color: #6bb7ff;
+    display: inline-flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 3px;
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    font-size: 17px;
+    line-height: 1;
 }
 
 .profile-stat--mvp .profile-stat__icon {
-    border-color: var(--gold);
+    color: var(--gold);
 }
 
 .profile-stat strong {
