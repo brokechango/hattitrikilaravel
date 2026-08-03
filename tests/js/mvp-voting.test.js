@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
     collectDisabledMvpMatchIds,
+    nextMvpVotingMatchId,
+    resolveCurrentPlayerId,
     resolveMatchMvpPlayerId,
     resolveMvpCandidates,
     resolveMvpVotingAccess,
@@ -79,5 +81,28 @@ describe('MVP candidates', () => {
             ['player-1', 'player-2', 'player-1', 'player-3'],
             'player-1',
         )).toEqual(['player-2', 'player-3']);
+    });
+});
+
+describe('MVP vote panel state', () => {
+    it('opens and closes the requested match without an animation dependency', () => {
+        const disabledMatches = new Set();
+
+        expect(nextMvpVotingMatchId(null, 'match-4', disabledMatches))
+            .toBe('match-4');
+        expect(nextMvpVotingMatchId('match-4', 'match-4', disabledMatches))
+            .toBeNull();
+    });
+
+    it('does not open voting for a disabled match', () => {
+        expect(nextMvpVotingMatchId(null, 'match-2', new Set(['match-2'])))
+            .toBeNull();
+    });
+
+    it('normalizes current-player RPC responses before checking eligibility', () => {
+        expect(resolveCurrentPlayerId([{ player_id: 'player-1' }])).toBe('player-1');
+        expect(resolveCurrentPlayerId({ player_id: 'player-2' })).toBe('player-2');
+        expect(resolveCurrentPlayerId('player-3')).toBe('player-3');
+        expect(resolveCurrentPlayerId([])).toBeNull();
     });
 });

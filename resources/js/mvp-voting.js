@@ -2,6 +2,24 @@ export function collectDisabledMvpMatchIds(rows) {
     return new Set((rows || []).map((row) => row.match_id));
 }
 
+export function resolveCurrentPlayerId(result) {
+    const row = Array.isArray(result) ? result[0] : result;
+
+    if (typeof row === 'string') return row || null;
+
+    return row?.player_id
+        || row?.get_current_league_player_id
+        || null;
+}
+
+export function nextMvpVotingMatchId(currentMatchId, requestedMatchId, disabledMatchIds) {
+    if (!requestedMatchId || disabledMatchIds?.has(requestedMatchId)) {
+        return currentMatchId;
+    }
+
+    return currentMatchId === requestedMatchId ? null : requestedMatchId;
+}
+
 export function resolveMatchMvpPlayerId(rows, matchId) {
     const matchVotes = (rows || [])
         .filter((row) => row.match_id === matchId)

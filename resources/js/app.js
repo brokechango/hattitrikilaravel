@@ -14,6 +14,8 @@ import {
 import { formatFlooredTotal } from './formatters';
 import {
     collectDisabledMvpMatchIds,
+    nextMvpVotingMatchId,
+    resolveCurrentPlayerId,
     resolveMatchMvpPlayerId,
     resolveMvpCandidates,
     resolveMvpVotingAccess,
@@ -479,7 +481,7 @@ async function loadApplicationData(force = false) {
         state.seasons = normalizeSeasons(seasons);
         state.selectedSeasonId = resolveSeasonId(state.seasons, requestedSeasonId);
         state.snapshot = normalizeSnapshot(players, matches);
-        state.currentPlayerId = (Array.isArray(currentPlayerRows) ? currentPlayerRows[0] : currentPlayerRows)?.player_id ?? null;
+        state.currentPlayerId = resolveCurrentPlayerId(currentPlayerRows);
         state.mvpVotes = mvpVotes || [];
         state.mvpVotingDisabledMatchIds = collectDisabledMvpMatchIds(mvpVotingDisabledMatches);
         avatarRefreshGeneration += 1;
@@ -522,6 +524,14 @@ async function selectSeason(seasonId) {
 
 async function refreshMvpVotes() {
     state.mvpVotes = await rpc('get_league_match_mvp_votes');
+}
+
+async function refreshCurrentPlayerId() {
+    state.currentPlayerId = resolveCurrentPlayerId(
+        await rpc('get_current_league_player_id'),
+    );
+
+    return state.currentPlayerId;
 }
 
 function clearAvatarRefreshTimer() {
@@ -1487,6 +1497,10 @@ function renderMatchMvp(match) {
     );
     const candidateIds = resolveMvpCandidates(participantIds, state.currentPlayerId);
     const panelOpen = state.mvpVotingMatchId === match.id;
+    const panelId = `mvp-vote-panel-${match.id}`;
+    const canAttemptVote = votingEnabled
+        && (eligible || !state.currentPlayerId)
+        && !state.mvpBusy;
 
     return `<section class="card match-mvp">
         <div class="match-mvp__intro">
@@ -1502,12 +1516,12 @@ function renderMatchMvp(match) {
             </div>
             <div class="match-mvp__action">
                 ${currentVote ? `<span class="match-mvp__current">Tu voto: <strong>${esc(playerName(currentVote.nominee_player_id))}</strong></span>` : ''}
-                <button class="btn match-mvp__button" type="button" data-action="toggle-mvp-vote" data-match-id="${esc(match.id)}" ${eligible && !state.mvpBusy ? '' : 'disabled'}>
+                <button class="btn match-mvp__button" type="button" data-action="toggle-mvp-vote" data-match-id="${esc(match.id)}" aria-expanded="${panelOpen && eligible}" aria-controls="${esc(panelId)}" ${canAttemptVote ? '' : 'disabled'}>
                     ${!votingEnabled ? 'Votación no disponible' : currentVote ? 'Cambiar mi voto' : 'Votar al MVP'}
                 </button>
             </div>
         </div>
-        ${panelOpen && eligible ? `<div class="match-mvp__panel">
+        ${panelOpen && eligible ? `<div class="match-mvp__panel" id="${esc(panelId)}">
             <p>Selecciona a otro jugador de la alineación</p>
             <div class="mvp-candidate-grid">
                 ${candidateIds.map((playerId) => {
@@ -2753,11 +2767,45 @@ root.addEventListener('click', async (event) => {
         render();
         queueMicrotask(() => document.querySelector('.ranking-dialog__close')?.focus());
     } else if (action === 'toggle-mvp-vote') {
-        if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
-        state.mvpVotingMatchId = state.mvpVotingMatchId === target.dataset.matchId
-            ? null
-            : target.dataset.matchId;
-        await transitionRender('content');
+        const matchId = target.dataset.matchId;
+        if (state.mvpVotingDisabledMatchIds.has(matchId)) return;
+
+        if (!state.currentPlayerId) {
+            try {
+                await refreshCurrentPlayerId();
+            } catch (error) {
+                showSnackbar(errorMessage(error, 'No se ha podido identificar tu jugador.'), true);
+                return;
+            }
+        }
+
+        const match = state.snapshot.matches.find((item) => item.id === matchId);
+        const participantIds = match?.participants.map((participant) => participant.player_id) || [];
+        const { eligible } = resolveMvpVotingAccess(
+            matchId,
+            state.currentPlayerId,
+            participantIds,
+            state.mvpVotingDisabledMatchIds,
+        );
+        if (!eligible) {
+            showSnackbar('Solo los participantes de este partido pueden cambiar su voto.', true);
+            return;
+        }
+
+        state.mvpVotingMatchId = nextMvpVotingMatchId(
+            state.mvpVotingMatchId,
+            matchId,
+            state.mvpVotingDisabledMatchIds,
+        );
+        render('content');
+        queueMicrotask(() => {
+            const nextFocus = state.mvpVotingMatchId
+                ? document.getElementById(`mvp-vote-panel-${matchId}`)
+                    ?.querySelector('.mvp-candidate')
+                : [...document.querySelectorAll('.match-mvp__button')]
+                    .find((button) => button.dataset.matchId === matchId);
+            nextFocus?.focus({ preventScroll: false });
+        });
     } else if (action === 'cast-mvp-vote') {
         if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
         if (target.dataset.playerId === state.currentPlayerId) return;
