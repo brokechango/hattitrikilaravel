@@ -1342,9 +1342,12 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                     ${dashboardRankings.map(([label, position, value, category]) => `<a href="/rankings" data-action="open-ranking" data-category="${category}"><span class="profile-ranking-list__position">${position ? `<strong>${position}</strong><small>º</small>` : '<strong>—</strong>'}</span><span><strong>${esc(label)}</strong><small>${esc(value)}</small></span><i aria-hidden="true">›</i></a>`).join('')}
                 </div>
             </section>
-            <section class="profile-connections" aria-labelledby="profile-connections-title"><header class="profile-card-heading profile-card-heading--standalone"><div><span>COMPAÑEROS Y RIVALES</span><h2 id="profile-connections-title">Conexiones en la liga</h2></div></header>
-                ${renderConnection('Máximo rival', ownProfile ? 'El jugador contra el que más te has enfrentado.' : 'El jugador al que se ha enfrentado más veces.', summary.rival, 'rival')}
-                ${renderConnection('Compañero inseparable', ownProfile ? 'El jugador con el que más has compartido equipo.' : 'El jugador con el que más ha compartido equipo.', summary.teammate, 'teammate')}
+            <section class="card profile-connections" aria-labelledby="profile-connections-title">
+                <header class="profile-card-heading"><div><span>COMPAÑEROS Y RIVALES</span><h2 id="profile-connections-title">Conexiones en la liga</h2></div><span class="profile-card-heading__meta">2 vínculos</span></header>
+                <div class="profile-connections__list">
+                    ${renderConnection('Máximo rival', ownProfile ? 'Con quien más te has enfrentado' : 'Su rival más frecuente', summary.rival, 'rival')}
+                    ${renderConnection('Compañero inseparable', ownProfile ? 'Con quien más has compartido equipo' : 'Su compañero más frecuente', summary.teammate, 'teammate')}
+                </div>
             </section>
         </div>
         <div class="profile-explanations-wrap">
@@ -1355,9 +1358,12 @@ function renderPlayerProfile(playerId, ownProfile = false) {
 }
 
 function renderConnection(title, copy, connection, kind = '') {
-    return `<div class="card connection-card connection-card--${kind}"><h3>${esc(title)}</h3><p class="muted connection-card__copy">${esc(copy)}</p>
-        ${connection ? `<a class="connection-card__player" href="/rankings/jugador/${toHex(connection[0])}">${avatar(playerById(connection[0]))}<strong class="connection-card__name">${esc(playerName(connection[0]))}</strong><span class="connection-card__matches">${connection[1]} PJ <span aria-hidden="true">›</span></span></a>${connection[2] ? '<p class="muted connection-card__tie">Empata con otro jugador.</p>' : ''}` : '<div class="connection-card__value muted">No hay suficientes partidos</div>'}
-    </div>`;
+    const symbol = kind === 'rival' ? '⚔' : '🤝';
+    const label = kind === 'rival' ? 'RIVALIDAD' : 'COMPAÑERISMO';
+    return `<article class="connection-card connection-card--${kind}">
+        <header class="connection-card__heading"><span class="connection-card__symbol" aria-hidden="true">${symbol}</span><span><small>${label}</small><h3>${esc(title)}</h3></span></header>
+        ${connection ? `<a class="connection-card__player" href="/rankings/jugador/${toHex(connection[0])}">${avatar(playerById(connection[0]))}<span class="connection-card__identity"><strong class="connection-card__name">${esc(playerName(connection[0]))}</strong><small>${esc(copy)}</small></span><span class="connection-card__matches"><strong>${connection[1]}</strong><small>PJ</small></span><span class="connection-card__arrow" aria-hidden="true">›</span></a>${connection[2] ? '<p class="connection-card__tie">Comparte esta posición con otro jugador.</p>' : ''}` : '<div class="connection-card__value"><strong>Sin datos suficientes</strong><small>Se mostrará cuando haya más partidos.</small></div>'}
+    </article>`;
 }
 
 function renderOwnProfile() {

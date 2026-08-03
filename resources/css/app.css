@@ -2523,16 +2523,10 @@ noscript {
 
 .profile-connections {
     display: grid;
+    min-width: 0;
     align-content: start;
-    gap: 14px;
-}
-
-.profile-connections > h2 {
-    margin: 0;
-    color: var(--gold);
-    font-size: 14px;
-    font-weight: 900;
-    line-height: 18px;
+    padding: 0;
+    overflow: hidden;
 }
 
 .enlarged-avatar {
@@ -2554,56 +2548,106 @@ noscript {
     font-weight: 800;
 }
 
-.connection-grid {
+.profile-connections__list {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
 }
 
 .connection-card {
-    min-height: 0;
-    padding: 18px;
+    position: relative;
+    display: grid;
+    gap: 11px;
+    padding: 15px 18px 17px;
+    border-bottom: 1px solid rgb(111 137 163 / 18%);
+}
+
+.connection-card:last-child {
+    border-bottom: 0;
+}
+
+.connection-card::before {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: var(--error);
+    content: "";
+}
+
+.connection-card--teammate::before {
+    background: var(--success);
+}
+
+.connection-card__heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.connection-card__symbol {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    flex: 0 0 32px;
+    border: 1px solid rgb(222 90 102 / 35%);
+    border-radius: 6px;
+    background: rgb(222 90 102 / 9%);
+    font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif;
+    font-size: 16px;
+    place-items: center;
+}
+
+.connection-card--teammate .connection-card__symbol {
+    border-color: rgb(69 185 120 / 35%);
+    background: rgb(69 185 120 / 9%);
+}
+
+.connection-card__heading > span:last-child {
+    display: grid;
+    gap: 1px;
+}
+
+.connection-card__heading small {
+    color: var(--error);
+    font-size: 8px;
+    font-weight: 900;
+    letter-spacing: .1em;
+    line-height: 11px;
+}
+
+.connection-card--teammate .connection-card__heading small {
+    color: var(--success);
 }
 
 .connection-card h3 {
     margin: 0;
-    color: var(--error);
+    font-family: var(--font-display);
     font-size: 16px;
-    font-weight: 900;
-    line-height: 21px;
-}
-
-.connection-card--teammate h3 {
-    color: #45b978;
-}
-
-.connection-card__copy {
-    margin: 4px 0 0;
-    font-size: 12px;
-    line-height: 18px;
+    line-height: 19px;
 }
 
 .connection-card__player {
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr) auto;
+    grid-template-columns: 38px minmax(0, 1fr) auto 14px;
     align-items: center;
-    gap: 14px;
-    min-height: 58px;
-    margin-top: 12px;
-    padding: 10px 12px;
+    gap: 11px;
+    min-height: 62px;
+    padding: 10px;
     border: 1px solid rgb(117 149 180 / 26%);
-    border-radius: 12px;
-    background: rgb(5 22 39 / 44%);
+    border-radius: 7px;
+    background: linear-gradient(100deg, rgb(20 56 93 / 38%), rgb(7 17 31 / 34%));
     color: inherit;
     text-decoration: none;
     transition:
         border-color var(--motion-duration-base) var(--motion-ease-standard),
-        background-color var(--motion-duration-base) var(--motion-ease-standard);
+        background-color var(--motion-duration-base) var(--motion-ease-standard),
+        transform var(--motion-duration-base) var(--motion-ease-out);
 }
 
 .connection-card__player:hover {
     border-color: rgb(242 190 62 / 60%);
-    background: rgb(19 44 73 / 74%);
+    background: linear-gradient(100deg, rgb(20 56 93 / 62%), rgb(7 17 31 / 44%));
+    transform: translateY(-1px);
 }
 
 .connection-card__player:focus-visible {
@@ -2612,43 +2656,86 @@ noscript {
 }
 
 .connection-card__player .avatar {
-    width: 36px;
-    height: 36px;
-    flex-basis: 36px;
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+    border-radius: 6px;
+}
+
+.connection-card__identity {
+    display: grid;
+    min-width: 0;
+    gap: 2px;
 }
 
 .connection-card__name {
+    overflow: hidden;
     min-width: 0;
-    font-size: 16px;
-    line-height: 20px;
-}
-
-.connection-card__matches {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    color: var(--gold);
-    font-size: 13px;
-    font-weight: 900;
+    font-size: 14px;
     line-height: 18px;
+    text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.connection-card__matches span {
+.connection-card__identity small {
+    overflow: hidden;
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 13px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-card__matches {
+    display: grid;
+    min-width: 32px;
+    gap: 0;
+    color: var(--gold);
+    text-align: center;
+    white-space: nowrap;
+}
+
+.connection-card__matches strong {
+    font-family: var(--font-display);
+    font-size: 20px;
+    line-height: 21px;
+}
+
+.connection-card__matches small {
+    color: var(--muted);
+    font-size: 7px;
+    font-weight: 900;
+    letter-spacing: .08em;
+}
+
+.connection-card__arrow {
+    color: var(--gold);
     font-size: 20px;
     line-height: 1;
 }
 
-.connection-card .connection-card__tie {
-    margin: 8px 12px 0 62px;
-    font-size: 12px;
-    line-height: 18px;
+.connection-card__tie {
+    margin: -3px 0 0 49px;
+    color: var(--muted);
+    font-size: 9px;
+    line-height: 13px;
 }
 
 .connection-card__value {
-    margin-top: 10px;
-    font-size: 19px;
-    font-weight: 900;
+    display: grid;
+    gap: 2px;
+    padding: 12px;
+    border: 1px dashed rgb(111 137 163 / 25%);
+    border-radius: 7px;
+}
+
+.connection-card__value strong {
+    font-size: 12px;
+}
+
+.connection-card__value small {
+    color: var(--muted);
+    font-size: 9px;
 }
 
 /* Player dashboard */
@@ -3289,14 +3376,6 @@ noscript {
     font-style: normal;
 }
 
-.profile-connections {
-    gap: 10px;
-}
-
-.profile-connections .connection-card {
-    padding: 16px;
-}
-
 .profile-explanations-wrap {
     padding: 0;
 }
@@ -3336,11 +3415,19 @@ noscript {
 
     .profile-connections {
         grid-column: 1 / -1;
+    }
+
+    .profile-connections__list {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .profile-connections .profile-card-heading {
-        grid-column: 1 / -1;
+    .profile-connections__list .connection-card {
+        border-right: 1px solid rgb(111 137 163 / 18%);
+        border-bottom: 0;
+    }
+
+    .profile-connections__list .connection-card:last-child {
+        border-right: 0;
     }
 }
 
@@ -3356,6 +3443,19 @@ noscript {
     .profile-balance { grid-column: span 5; }
     .profile-rankings-card { grid-column: span 7; }
     .profile-connections { grid-column: span 5; }
+
+    .profile-connections__list {
+        grid-template-columns: 1fr;
+    }
+
+    .profile-connections__list .connection-card {
+        border-right: 0;
+        border-bottom: 1px solid rgb(111 137 163 / 18%);
+    }
+
+    .profile-connections__list .connection-card:last-child {
+        border-bottom: 0;
+    }
 
     .profile-overview__metrics {
         min-height: 223px;
