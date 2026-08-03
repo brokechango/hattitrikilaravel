@@ -2916,8 +2916,16 @@ noscript {
     background: var(--gold);
 }
 
-.profile-stat--elo::after {
+.profile-stat--wins::after {
+    background: #45b978;
+}
+
+.profile-stat--form::after {
     background: #6bb7ff;
+}
+
+.profile-stat--mvp::after {
+    background: var(--gold);
 }
 
 .profile-stat__icon {
@@ -2933,8 +2941,16 @@ noscript {
     border-color: var(--gold);
 }
 
-.profile-stat--elo .profile-stat__icon {
+.profile-stat--wins .profile-stat__icon {
+    border-color: #45b978;
+}
+
+.profile-stat--form .profile-stat__icon {
     border-color: #6bb7ff;
+}
+
+.profile-stat--mvp .profile-stat__icon {
+    border-color: var(--gold);
 }
 
 .profile-stat strong {
@@ -2989,7 +3005,6 @@ noscript {
 .profile-donut__value {
     stroke: var(--gold);
     stroke-linecap: round;
-    animation: profile-ring-in 720ms var(--motion-ease-out) both;
 }
 
 .profile-donut > span {
@@ -3084,13 +3099,7 @@ noscript {
     background: linear-gradient(rgb(69 185 120 / 88%), rgb(24 122 76 / 84%));
     box-shadow: 0 0 20px rgb(69 185 120 / 8%);
     transform-origin: center bottom;
-    animation: profile-column-in 520ms var(--motion-ease-out) both;
 }
-
-.profile-form-chart__item:nth-child(2) .profile-form-chart__bar i { animation-delay: 55ms; }
-.profile-form-chart__item:nth-child(3) .profile-form-chart__bar i { animation-delay: 110ms; }
-.profile-form-chart__item:nth-child(4) .profile-form-chart__bar i { animation-delay: 165ms; }
-.profile-form-chart__item:nth-child(5) .profile-form-chart__bar i { animation-delay: 220ms; }
 
 .profile-form-chart__item--draw .profile-form-chart__bar i {
     height: 52%;
@@ -3167,25 +3176,6 @@ noscript {
 .profile-balance__bar rect:not(.profile-balance__track) {
     transform-box: fill-box;
     transform-origin: left center;
-    animation: profile-result-in 620ms var(--motion-ease-out) both;
-}
-
-.profile-balance__bar .is-draw { animation-delay: 90ms; }
-.profile-balance__bar .is-loss { animation-delay: 180ms; }
-
-@keyframes profile-ring-in {
-    from { opacity: .25; stroke-dashoffset: 100; }
-    to { opacity: 1; stroke-dashoffset: 0; }
-}
-
-@keyframes profile-column-in {
-    from { opacity: 0; transform: scaleY(.08); }
-    to { opacity: 1; transform: scaleY(1); }
-}
-
-@keyframes profile-result-in {
-    from { opacity: 0; transform: scaleX(0); }
-    to { opacity: 1; transform: scaleX(1); }
 }
 
 .profile-balance__rows {
@@ -3350,11 +3340,7 @@ noscript {
     }
 
     .profile-overview__metrics {
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-    }
-
-    .profile-stat {
-        min-height: 128px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
     .profile-connections {
@@ -3379,6 +3365,10 @@ noscript {
     .profile-balance { grid-column: span 5; }
     .profile-rankings-card { grid-column: span 7; }
     .profile-connections { grid-column: span 5; }
+
+    .profile-overview__metrics {
+        min-height: 223px;
+    }
 
     .profile-winrate__body {
         flex-direction: column;

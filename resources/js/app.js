@@ -61,6 +61,8 @@ let avatarRefreshPromise = null;
 let avatarRefreshGeneration = 0;
 let avatarRefreshAttempt = 0;
 let lastAvatarFailureRefreshAt = 0;
+let profileMotionGeneration = 0;
+let profileMotionModule = null;
 const config = globalThis.HATTITRIKI_CONFIG ?? {};
 const AUTH_BOOT_TIMEOUT_MS = 10_000;
 const SUPABASE_REQUEST_TIMEOUT_MS = 15_000;
@@ -1226,10 +1228,12 @@ function renderPlayerProfile(playerId, ownProfile = false) {
         return index >= 0 ? index + 1 : null;
     };
     const dashboardMetrics = [
-        ['Partidos', item.matchesPlayed, 'Partidos en los que el jugador aparece en una alineación.', 'matches'],
-        ['Goles', item.goals, 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals'],
-        ['Goles / partido', formatDecimal(item.goalsPerMatch), 'Media de goles marcados por cada partido jugado.', 'average'],
-        ['Rating Elo', Math.round(item.eloRating), 'Valor de rendimiento calculado según resultado, nivel del rival y goles.', 'elo'],
+        ['Partidos', item.matchesPlayed, item.matchesPlayed, 'integer', 'Partidos en los que el jugador aparece en una alineación.', 'matches'],
+        ['Goles', item.goals, item.goals, 'integer', 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals'],
+        ['Goles / partido', formatDecimal(item.goalsPerMatch), item.goalsPerMatch, 'decimal', 'Media de goles marcados por cada partido jugado.', 'average'],
+        ['Victorias', item.wins, item.wins, 'integer', 'Partidos jugados que terminó ganando su equipo.', 'wins'],
+        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos.', 'form'],
+        ['Votos MVP', item.mvpVotes, item.mvpVotes, 'integer', 'Votos recibidos en partidos con la elección de MVP habilitada.', 'mvp'],
     ];
     const dashboardRankings = [
         ['Goleadores', rankPosition('top-scorer'), `${item.goals} ${item.goals === 1 ? 'gol' : 'goles'}`, 'top-scorer'],
@@ -1251,10 +1255,9 @@ function renderPlayerProfile(playerId, ownProfile = false) {
         </li>`;
     }).join('');
     const metricExplanations = [
-        ...dashboardMetrics.map(([label, , explanation]) => [label, explanation]),
+        ...dashboardMetrics.map(([label, , , , explanation]) => [label, explanation]),
         ['Porcentaje de victorias', 'Victorias divididas entre los partidos jugados, redondeado al número entero más cercano.'],
         ['Forma reciente', 'Representa, del partido más antiguo al más reciente, victorias, empates, derrotas y jornadas en las que no participó.'],
-        ['Rating Elo', 'Todos parten de 1.000 puntos. Cambia según el resultado, la fuerza media del rival y los goles marcados.'],
     ];
     const avatarContent = state.avatars[playerId]
         ? `<button class="profile-avatar-button" type="button" data-action="view-avatar" data-url="${esc(state.avatars[playerId])}" data-player-id="${esc(playerId)}" data-name="${esc(item.player.name)}">${avatar(item.player, true)}</button>`
@@ -1275,9 +1278,9 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                 </div>
             </div>
             <div class="profile-hero__numbers" aria-label="Resumen de rendimiento">
-                <span><small>RATING ELO</small><strong>${esc(Math.round(item.eloRating))}</strong></span>
-                <span><small>FORMA</small><strong class="${formScore > 0 ? 'is-positive' : formScore < 0 ? 'is-negative' : ''}">${esc(formScoreLabel)}</strong></span>
-                <span><small>VICTORIAS</small><strong>${esc(winRate)}%</strong></span>
+                <span><small>GOLES</small><strong data-motion-number="${esc(item.goals)}">${esc(item.goals)}</strong></span>
+                <span><small>FORMA</small><strong class="${formScore > 0 ? 'is-positive' : formScore < 0 ? 'is-negative' : ''}" data-motion-number="${esc(formScore)}" data-motion-format="signed">${esc(formScoreLabel)}</strong></span>
+                <span><small>VICTORIAS</small><strong data-motion-number="${esc(winRate)}" data-motion-format="percent">${esc(winRate)}%</strong></span>
             </div>
         </section>
         ${profileDetail !== 'loading' && !profileDetail.error && !profileDetail.has_linked_account ? '<div class="card profile-hint">Este jugador todavía no tiene una cuenta vinculada.</div>' : ''}
@@ -1289,7 +1292,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                     <span class="profile-card-heading__meta">${esc(item.matchesPlayed)} PJ</span>
                 </header>
                 <div class="profile-overview__metrics">
-                    ${dashboardMetrics.map(([label, value, , modifier]) => `<div class="profile-stat profile-stat--${modifier}"><span class="profile-stat__icon" aria-hidden="true"></span><strong>${esc(value)}</strong><small>${esc(label)}</small></div>`).join('')}
+                    ${dashboardMetrics.map(([label, value, motionValue, motionFormat, , modifier]) => `<div class="profile-stat profile-stat--${modifier}"><span class="profile-stat__icon" aria-hidden="true"></span><strong data-motion-number="${esc(motionValue)}" data-motion-format="${esc(motionFormat)}">${esc(value)}</strong><small>${esc(label)}</small></div>`).join('')}
                 </div>
             </section>
             <section class="card profile-winrate" aria-labelledby="profile-winrate-title">
@@ -1299,7 +1302,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
                 <div class="profile-winrate__body">
                     <div class="profile-donut" role="img" aria-label="${winRate}% de victorias">
                         <svg viewBox="0 0 42 42" aria-hidden="true"><circle class="profile-donut__track" cx="21" cy="21" r="15.9155"></circle><circle class="profile-donut__value" cx="21" cy="21" r="15.9155" stroke-dasharray="${winRate} ${100 - winRate}"></circle></svg>
-                        <span><strong>${winRate}%</strong><small>de partidos</small></span>
+                        <span><strong data-motion-number="${esc(winRate)}" data-motion-format="percent">${winRate}%</strong><small>de partidos</small></span>
                     </div>
                     <div class="profile-winrate__copy"><strong>${item.wins} de ${item.matchesPlayed}</strong><span>${item.matchesPlayed ? (winRate >= 60 ? 'Gran temporada' : winRate >= 40 ? 'Balance competitivo' : 'Margen para crecer') : 'Aún sin partidos'}</span></div>
                 </div>
@@ -1592,7 +1595,24 @@ function confirmDiscard(onDiscard) {
     render();
 }
 
+function cleanupProfileMotion() {
+    profileMotionGeneration += 1;
+    profileMotionModule?.cleanupProfileDashboardMotion();
+}
+
+async function activateProfileMotion() {
+    if (!root.querySelector('.profile-dashboard-grid') || prefersReducedMotion()) return;
+
+    const generation = ++profileMotionGeneration;
+    const motionModule = profileMotionModule || await import('./profile-motion');
+    if (generation !== profileMotionGeneration) return;
+
+    profileMotionModule = motionModule;
+    motionModule.setupProfileDashboardMotion(root);
+}
+
 function render() {
+    cleanupProfileMotion();
     if (!state.client || (!state.session && !['invite', 'recovery'].includes(state.authMode))) {
         renderAuth();
         return;
@@ -1626,6 +1646,7 @@ function render() {
     }
     const routeMotion = shouldAnimateRoute(lastRenderedRoute, route);
     root.innerHTML = shell(page, { routeMotion });
+    void activateProfileMotion();
     lastRenderedRoute = route;
     state.selectionMotion = null;
 }
