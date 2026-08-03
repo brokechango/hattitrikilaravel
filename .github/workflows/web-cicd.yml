@@ -62,6 +62,8 @@ jobs:
         run: composer test
 
       - name: Run Motion tests
+        env:
+          LARAVEL_BYPASS_ENV_CHECK: "1"
         run: npm test
 
   container:
