@@ -356,6 +356,274 @@ export function calculatePlayerStats(snapshot) {
     });
 }
 
+const TEAM_BALANCE_EPSILON = 1e-9;
+
+function emptyTeamBuckets(capacities) {
+    return capacities.map((capacity) => ({
+        capacity,
+        cardioPlayers: 0,
+        players: [],
+        score: 0,
+    }));
+}
+
+function refreshTeamBucket(team) {
+    team.score = team.players.reduce((total, player) => total + player.statsScore, 0);
+    team.cardioPlayers = team.players.filter((player) => player.has_cardio).length;
+}
+
+function teamBalanceObjective(teams, balanceStats) {
+    const scores = teams.map((team) => team.score);
+    const cardio = teams.map((team) => team.cardioPlayers);
+    const scoreAverage = scores.reduce((total, score) => total + score, 0) / scores.length;
+    const cardioAverage = cardio.reduce((total, count) => total + count, 0) / cardio.length;
+    const scoreMetrics = [
+        Math.max(...scores) - Math.min(...scores),
+        scores.reduce((total, score) => total + ((score - scoreAverage) ** 2), 0),
+    ];
+    const cardioMetrics = [
+        Math.max(...cardio) - Math.min(...cardio),
+        cardio.reduce((total, count) => total + ((count - cardioAverage) ** 2), 0),
+    ];
+
+    return balanceStats ? [...scoreMetrics, ...cardioMetrics] : cardioMetrics;
+}
+
+function objectiveIsBetter(candidate, current) {
+    if (!current) return true;
+
+    for (let index = 0; index < candidate.length; index += 1) {
+        const difference = candidate[index] - current[index];
+        if (Math.abs(difference) <= TEAM_BALANCE_EPSILON) continue;
+        return difference < 0;
+    }
+
+    return false;
+}
+
+function objectivesAreEqual(left, right) {
+    return Boolean(right)
+        && left.length === right.length
+        && left.every((value, index) => Math.abs(value - right[index]) <= TEAM_BALANCE_EPSILON);
+}
+
+function playersFromBuckets(teams) {
+    return teams.map((team) => [...team.players]);
+}
+
+function exactTwoTeamBalance(players, capacities, random) {
+    const firstCapacity = capacities[0];
+    const totalScore = players.reduce((total, player) => total + player.statsScore, 0);
+    const totalCardio = players.filter((player) => player.has_cardio).length;
+    let bestSelection = [];
+    let bestObjective = null;
+    let equivalentSolutions = 0;
+    const selected = [];
+
+    function search(nextIndex, remaining, score, cardio) {
+        if (!remaining) {
+            const objective = [
+                Math.abs(score - (totalScore - score)),
+                Math.abs(cardio - (totalCardio - cardio)),
+            ];
+
+            if (objectiveIsBetter(objective, bestObjective)) {
+                bestObjective = objective;
+                bestSelection = [...selected];
+                equivalentSolutions = 1;
+            } else if (objectivesAreEqual(objective, bestObjective)) {
+                equivalentSolutions += 1;
+                if (random() < 1 / equivalentSolutions) bestSelection = [...selected];
+            }
+            return;
+        }
+
+        if (players.length - nextIndex < remaining) return;
+
+        for (let index = nextIndex; index <= players.length - remaining; index += 1) {
+            const player = players[index];
+            selected.push(index);
+            search(
+                index + 1,
+                remaining - 1,
+                score + player.statsScore,
+                cardio + Number(Boolean(player.has_cardio)),
+            );
+            selected.pop();
+        }
+    }
+
+    if (capacities[0] === capacities[1]) {
+        selected.push(0);
+        search(
+            1,
+            firstCapacity - 1,
+            players[0].statsScore,
+            Number(Boolean(players[0].has_cardio)),
+        );
+        selected.pop();
+    } else {
+        search(0, firstCapacity, 0, 0);
+    }
+    const firstTeamIndexes = new Set(bestSelection);
+    const teams = [[], []];
+    players.forEach((player, index) => {
+        teams[firstTeamIndexes.has(index) ? 0 : 1].push(player);
+    });
+
+    return teams;
+}
+
+function exactTeamBalance(players, capacities, balanceStats, random) {
+    const ordered = [...players]
+        .sort((a, b) => Math.abs(b.statsScore) - Math.abs(a.statsScore));
+    const teams = emptyTeamBuckets(capacities);
+    let bestTeams = null;
+    let bestObjective = null;
+    let equivalentSolutions = 0;
+
+    function search(playerIndex) {
+        if (playerIndex === ordered.length) {
+            const objective = teamBalanceObjective(teams, balanceStats);
+            if (objectiveIsBetter(objective, bestObjective)) {
+                bestObjective = objective;
+                bestTeams = structuredClone(teams);
+                equivalentSolutions = 1;
+            } else if (objectivesAreEqual(objective, bestObjective)) {
+                equivalentSolutions += 1;
+                if (random() < 1 / equivalentSolutions) bestTeams = structuredClone(teams);
+            }
+            return;
+        }
+
+        const player = ordered[playerIndex];
+        const seenStates = new Set();
+        teams.forEach((team, teamIndex) => {
+            if (team.players.length >= team.capacity) return;
+            const state = [
+                team.capacity,
+                team.players.length,
+                team.score.toFixed(9),
+                team.cardioPlayers,
+            ].join('|');
+            if (seenStates.has(state)) return;
+            seenStates.add(state);
+
+            team.players.push(player);
+            team.score += player.statsScore;
+            team.cardioPlayers += Number(Boolean(player.has_cardio));
+            search(playerIndex + 1);
+            team.players.pop();
+            team.score -= player.statsScore;
+            team.cardioPlayers -= Number(Boolean(player.has_cardio));
+        });
+    }
+
+    search(0);
+    return bestTeams ? playersFromBuckets(bestTeams) : null;
+}
+
+function occupancySpread(teams) {
+    const occupancy = teams.map((team) => team.players.length / team.capacity);
+    return Math.max(...occupancy) - Math.min(...occupancy);
+}
+
+function improveTeamsBySwapping(teams, balanceStats) {
+    for (let iteration = 0; iteration < 100; iteration += 1) {
+        let bestObjective = teamBalanceObjective(teams, balanceStats);
+        let bestSwap = null;
+
+        for (let firstTeam = 0; firstTeam < teams.length - 1; firstTeam += 1) {
+            for (let secondTeam = firstTeam + 1; secondTeam < teams.length; secondTeam += 1) {
+                teams[firstTeam].players.forEach((firstPlayer, firstIndex) => {
+                    teams[secondTeam].players.forEach((secondPlayer, secondIndex) => {
+                        const candidate = structuredClone(teams);
+                        candidate[firstTeam].players[firstIndex] = secondPlayer;
+                        candidate[secondTeam].players[secondIndex] = firstPlayer;
+                        refreshTeamBucket(candidate[firstTeam]);
+                        refreshTeamBucket(candidate[secondTeam]);
+                        const objective = teamBalanceObjective(candidate, balanceStats);
+                        if (objectiveIsBetter(objective, bestObjective)) {
+                            bestObjective = objective;
+                            bestSwap = [firstTeam, firstIndex, secondTeam, secondIndex];
+                        }
+                    });
+                });
+            }
+        }
+
+        if (!bestSwap) break;
+        const [firstTeam, firstIndex, secondTeam, secondIndex] = bestSwap;
+        const firstPlayer = teams[firstTeam].players[firstIndex];
+        teams[firstTeam].players[firstIndex] = teams[secondTeam].players[secondIndex];
+        teams[secondTeam].players[secondIndex] = firstPlayer;
+        refreshTeamBucket(teams[firstTeam]);
+        refreshTeamBucket(teams[secondTeam]);
+    }
+
+    return teams;
+}
+
+function shufflePlayers(players, random) {
+    const shuffled = [...players];
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+        const target = Math.floor(random() * (index + 1));
+        [shuffled[index], shuffled[target]] = [shuffled[target], shuffled[index]];
+    }
+    return shuffled;
+}
+
+function heuristicTeamBalance(players, capacities, balanceStats, random) {
+    const attempts = Math.min(48, Math.max(12, players.length * 2));
+    let bestTeams = null;
+    let bestObjective = null;
+
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const ordered = attempt
+            ? shufflePlayers(players, random)
+            : [...players].sort((a, b) => Math.abs(b.statsScore) - Math.abs(a.statsScore));
+        let teams = emptyTeamBuckets(capacities);
+
+        for (const player of ordered) {
+            let candidateIndex = null;
+            let candidateObjective = null;
+
+            teams.forEach((team, teamIndex) => {
+                if (team.players.length >= team.capacity) return;
+                const candidate = structuredClone(teams);
+                candidate[teamIndex].players.push(player);
+                candidate[teamIndex].score += player.statsScore;
+                candidate[teamIndex].cardioPlayers += Number(Boolean(player.has_cardio));
+                const objective = [
+                    ...teamBalanceObjective(candidate, balanceStats),
+                    occupancySpread(candidate),
+                ];
+                if (objectiveIsBetter(objective, candidateObjective)) {
+                    candidateIndex = teamIndex;
+                    candidateObjective = objective;
+                }
+            });
+
+            if (candidateIndex == null) continue;
+            teams[candidateIndex].players.push(player);
+            teams[candidateIndex].score += player.statsScore;
+            teams[candidateIndex].cardioPlayers += Number(Boolean(player.has_cardio));
+        }
+
+        teams = improveTeamsBySwapping(teams, balanceStats);
+        const objective = teamBalanceObjective(teams, balanceStats);
+        if (
+            objectiveIsBetter(objective, bestObjective)
+            || (objectivesAreEqual(objective, bestObjective) && random() < 0.5)
+        ) {
+            bestTeams = teams;
+            bestObjective = objective;
+        }
+    }
+
+    return playersFromBuckets(bestTeams || emptyTeamBuckets(capacities));
+}
+
 export function generateBalancedTeams(players, teamCount, options = {}) {
     if (
         !Array.isArray(players)
@@ -373,66 +641,26 @@ export function generateBalancedTeams(players, teamCount, options = {}) {
         ...player,
         statsScore: Number(player.statsScore) || 0,
     }));
-
-    for (let index = selected.length - 1; index > 0; index -= 1) {
-        const target = Math.floor(random() * (index + 1));
-        [selected[index], selected[target]] = [selected[target], selected[index]];
-    }
-
-    const minimumStatsScore = Math.min(
-        0,
-        ...selected.map((player) => player.statsScore),
+    const extraPlayerTeams = selected.length % teamCount;
+    const capacities = Array.from(
+        { length: teamCount },
+        (_, index) => Math.floor(selected.length / teamCount)
+            + Number(index < extraPlayerTeams),
     );
 
-    for (const player of selected) {
-        player.balanceScore = player.statsScore - minimumStatsScore;
+    if (balanceStats && teamCount === 2 && selected.length <= 22) {
+        return exactTwoTeamBalance(selected, capacities, random);
     }
 
-    selected.sort((a, b) => Number(b.has_cardio) - Number(a.has_cardio)
-        || (balanceStats ? b.balanceScore - a.balanceScore : 0));
-
-    const extraPlayerTeams = selected.length % teamCount;
-    const teams = Array.from({ length: teamCount }, (_, index) => ({
-        balanceScore: 0,
-        capacity: Math.floor(selected.length / teamCount)
-            + (index < extraPlayerTeams ? 1 : 0),
-        cardioPlayers: 0,
-        players: [],
-    }));
-
-    for (const player of selected) {
-        let candidates = teams.filter((team) => team.players.length < team.capacity);
-
-        if (player.has_cardio) {
-            const minimumCardio = Math.min(
-                ...candidates.map((team) => team.cardioPlayers),
-            );
-            candidates = candidates
-                .filter((team) => team.cardioPlayers === minimumCardio);
-        }
-
-        if (balanceStats) {
-            const minimumScore = Math.min(
-                ...candidates.map((team) => team.balanceScore),
-            );
-            candidates = candidates
-                .filter((team) => team.balanceScore === minimumScore);
-        }
-
-        const minimumSize = Math.min(
-            ...candidates.map((team) => team.players.length),
+    if (selected.length <= 12) {
+        const exactTeams = exactTeamBalance(
+            selected,
+            capacities,
+            balanceStats,
+            random,
         );
-        candidates = candidates
-            .filter((team) => team.players.length === minimumSize);
-
-        const team = candidates[Math.floor(random() * candidates.length)];
-        team.players.push(player);
-        team.balanceScore += player.balanceScore;
-
-        if (player.has_cardio) {
-            team.cardioPlayers += 1;
-        }
+        if (exactTeams) return exactTeams;
     }
 
-    return teams.map((team) => team.players);
+    return heuristicTeamBalance(selected, capacities, balanceStats, random);
 }

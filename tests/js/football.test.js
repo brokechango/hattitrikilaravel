@@ -407,4 +407,81 @@ describe('football calculations', () => {
             team.reduce((total, player) => total + player.statsScore, 0),
         )).toEqual([0, 0]);
     });
+
+    it('finds an exact real-points split when one exists', () => {
+        const teams = generateBalancedTeams(
+            [14, 13, 8, 7, 5, 3].map((statsScore, index) => ({
+                id: `player-${index}`,
+                name: `Player ${index}`,
+                has_cardio: false,
+                statsScore,
+            })),
+            2,
+            { balanceStats: true, random: () => 0 },
+        );
+        const scores = teams
+            .map((team) => team.reduce((total, player) => total + player.statsScore, 0))
+            .sort((a, b) => a - b);
+
+        expect(scores).toEqual([25, 25]);
+        expect(teams.map((team) => team.length)).toEqual([3, 3]);
+    });
+
+    it('does not shift negative points when team sizes differ', () => {
+        const teams = generateBalancedTeams(
+            [-100, 50, 40, 30, 20].map((statsScore, index) => ({
+                id: `player-${index}`,
+                name: `Player ${index}`,
+                has_cardio: false,
+                statsScore,
+            })),
+            2,
+            { balanceStats: true, random: () => 0 },
+        );
+        const scores = teams
+            .map((team) => team.reduce((total, player) => total + player.statsScore, 0))
+            .sort((a, b) => a - b);
+        const sizes = teams.map((team) => team.length).sort((a, b) => a - b);
+
+        expect(scores).toEqual([-10, 50]);
+        expect(scores[1] - scores[0]).toBe(60);
+        expect(sizes).toEqual([2, 3]);
+    });
+
+    it('balances cardio only after minimizing the point difference', () => {
+        const teams = generateBalancedTeams(
+            [0, 1, 2, 3].map((index) => ({
+                id: `player-${index}`,
+                name: `Player ${index}`,
+                has_cardio: index < 2,
+                statsScore: 10,
+            })),
+            2,
+            { balanceStats: true, random: () => 0 },
+        );
+
+        expect(teams.map((team) =>
+            team.reduce((total, player) => total + player.statsScore, 0),
+        )).toEqual([20, 20]);
+        expect(teams.map((team) => team.filter((player) => player.has_cardio).length))
+            .toEqual([1, 1]);
+    });
+
+    it('equalizes real points across more than two teams', () => {
+        const teams = generateBalancedTeams(
+            [9, 8, 7, 6, 5, 4].map((statsScore, index) => ({
+                id: `player-${index}`,
+                name: `Player ${index}`,
+                has_cardio: false,
+                statsScore,
+            })),
+            3,
+            { balanceStats: true, random: () => 0 },
+        );
+        const scores = teams
+            .map((team) => team.reduce((total, player) => total + player.statsScore, 0))
+            .sort((a, b) => a - b);
+
+        expect(scores).toEqual([13, 13, 13]);
+    });
 });

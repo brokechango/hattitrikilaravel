@@ -2473,17 +2473,20 @@ function renderRandomizerResult() {
     const setup = resolveRandomizerSetup(totalPlayers, teams.length);
     const historicalBalance = state.randomizer?.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL;
     const balanceLabel = historicalBalance ? 'histórico' : 'racha';
+    const teamPointTotals = teams.map((team) =>
+        team.reduce((sum, player) => sum + (player.statsScore || 0), 0));
+    const pointDifference = Math.max(...teamPointTotals) - Math.min(...teamPointTotals);
     return `<section class="page stack stack--wide manager-page manager-page--tools randomizer-result-page">
         ${pageHeader('Equipos listos', 'Revisa el reparto y decide si quieres usarlo para el próximo partido.', `<a class="btn btn--outline btn--compact" href="/mister/equipos">Editar convocatoria</a>`)}
         <section class="card randomizer-result-hero">
             <span class="randomizer-result-hero__icon" aria-hidden="true">${icon('shuffle')}</span>
-            <div><span>REPARTO COMPLETADO</span><h2>${teams.length} equipos preparados</h2><p>Se han equilibrado el cardio y la puntuación de ${balanceLabel} calculada como en el ranking.</p></div>
+            <div><span>REPARTO COMPLETADO</span><h2>${teams.length} equipos preparados</h2><p>La diferencia entre el equipo con más y menos puntos de ${balanceLabel} es de <strong>${formatDecimal(pointDifference)}</strong>.</p></div>
             <div class="randomizer-result-hero__stats"><strong>${totalPlayers}</strong><span>jugadores</span><small>${setup.perTeamLabel} por equipo</small></div>
         </section>
         <div class="randomizer-result-grid">${teams.map((team, index) => {
             const teamName = names[index];
             const cardioPlayers = team.filter((player) => player.has_cardio).length;
-            const performance = team.reduce((sum, player) => sum + (player.statsScore || 0), 0);
+            const performance = teamPointTotals[index];
             return `<section class="card generated-team generated-team--${teamName.toLowerCase()}">
                 <header class="generated-team__header">
                     <i class="team-mark${index % 2 ? ' team-mark--gold' : ''}">${teamName}</i>
