@@ -2,39 +2,33 @@
 
 declare(strict_types=1);
 
-use App\Http\Controllers\SupabaseAuthCallbackController;
-use App\Livewire\AppShell;
 use Illuminate\Support\Facades\Route;
 
-Route::post('/auth/supabase/callback', SupabaseAuthCallbackController::class)
-    ->middleware('throttle:10,1')
-    ->name('auth.supabase.callback');
-
-Route::livewire('/', AppShell::class)->name('app');
-Route::livewire('/inicio', AppShell::class)->name('home');
-Route::livewire('/partidos', AppShell::class)->name('matches.index');
-Route::livewire('/partidos/{match}', AppShell::class)
+Route::view('/', 'app')->name('app');
+Route::view('/inicio', 'app')->name('home');
+Route::view('/partidos', 'app')->name('matches.index');
+Route::view('/partidos/{match}', 'app')
     ->where('match', '[0-9a-f]+')
     ->name('matches.show');
-Route::livewire('/rankings', AppShell::class)->name('rankings.index');
-Route::livewire('/rankings/jugador/{player}', AppShell::class)
+Route::view('/rankings', 'app')->name('rankings.index');
+Route::view('/rankings/jugador/{player}', 'app')
     ->where('player', '[0-9a-f]+')
     ->name('rankings.player');
-Route::livewire('/perfil', AppShell::class)->name('profile');
+Route::view('/perfil', 'app')->name('profile');
 
 Route::prefix('mister')->name('manager.')->group(function (): void {
-    Route::livewire('/', AppShell::class)->name('index');
-    Route::livewire('/partidos', AppShell::class)->name('matches.index');
-    Route::livewire('/partidos/nuevo', AppShell::class)->name('matches.create');
-    Route::livewire('/partidos/{match}', AppShell::class)
+    Route::view('/', 'app')->name('index');
+    Route::view('/partidos', 'app')->name('matches.index');
+    Route::view('/partidos/nuevo', 'app')->name('matches.create');
+    Route::view('/partidos/{match}', 'app')
         ->where('match', '[0-9a-f]+')
         ->name('matches.edit');
-    Route::livewire('/jugadores', AppShell::class)->name('players.index');
-    Route::livewire('/jugadores/nuevo', AppShell::class)->name('players.create');
-    Route::livewire('/jugadores/{player}', AppShell::class)
+    Route::view('/jugadores', 'app')->name('players.index');
+    Route::view('/jugadores/nuevo', 'app')->name('players.create');
+    Route::view('/jugadores/{player}', 'app')
         ->where('player', '[0-9a-f]+')
         ->name('players.edit');
-    Route::livewire('/invitacion', AppShell::class)->name('invitation');
-    Route::livewire('/equipos', AppShell::class)->name('teams.index');
-    Route::livewire('/equipos/resultado', AppShell::class)->name('teams.result');
+    Route::view('/invitacion', 'app')->name('invitation');
+    Route::view('/equipos', 'app')->name('teams.index');
+    Route::view('/equipos/resultado', 'app')->name('teams.result');
 });

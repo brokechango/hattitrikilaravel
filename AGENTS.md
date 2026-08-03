@@ -6,8 +6,8 @@ This Laravel 13 application uses Vite for its JavaScript frontend and Supabase f
 
 - `app/`: PHP models, middleware, providers, and controllers.
 - `routes/`: Laravel routes.
-- `resources/`: Livewire Blade views, Motion JavaScript, and CSS; shared football calculations live in `app/Services/LeagueStatistics.php`.
-- `public/`: web entry point and generated Vite assets. Supabase runtime configuration is server-side.
+- `resources/`: Blade views, JavaScript, and CSS; shared football calculations live in `resources/js/football.js`.
+- `public/`: web entry point and runtime assets, including `config.js`.
 - `database/`: local Laravel migrations, factories, and seeders.
 - `supabase/migrations/`: timestamped PostgreSQL migrations; `supabase/functions/` contains Edge Functions.
 - `tests/Feature` and `tests/Unit`: PHPUnit tests; `tests/js`: Vitest suites.
@@ -39,4 +39,4 @@ The repository has no commit history yet. Use short, imperative commits, optiona
 
 ## Security & Configuration
 
-Never place `service_role`, `sb_secret_`, or Supabase tokens in browser assets. Keep runtime configuration in `.env`, update `.env.example` with safe placeholders, and preserve database authorization in protected Supabase policies or RPCs rather than relying on hidden UI controls. Server requests must forward the authenticated user's bearer token so RLS remains active.
+Never place `service_role`, `sb_secret_`, or other secrets in `public/config.js`; only publishable Supabase values belong there. Keep local credentials in `.env`, update `.env.example` with safe placeholders, and preserve database authorization in protected Supabase policies or RPCs rather than relying on hidden UI controls.
