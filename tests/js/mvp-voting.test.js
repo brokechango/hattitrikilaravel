@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
     collectDisabledMvpMatchIds,
     resolveMatchMvpPlayerId,
+    resolveMvpCandidates,
     resolveMvpVotingAccess,
 } from '../../resources/js/mvp-voting';
 
@@ -69,5 +70,14 @@ describe('match MVP badge', () => {
         expect(resolveMatchMvpPlayerId([
             { match_id: 'match-4', nominee_player_id: 'player-1', vote_count: 0 },
         ], 'match-4')).toBeNull();
+    });
+});
+
+describe('MVP candidates', () => {
+    it('excludes the current player and removes duplicate participants', () => {
+        expect(resolveMvpCandidates(
+            ['player-1', 'player-2', 'player-1', 'player-3'],
+            'player-1',
+        )).toEqual(['player-2', 'player-3']);
     });
 });

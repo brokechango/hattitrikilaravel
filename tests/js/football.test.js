@@ -5,6 +5,7 @@ import {
     countMvpVotes,
     fromHex,
     generateBalancedTeams,
+    isGoalsPerMatchEligible,
     matchWinner,
     toHex,
 } from '../../resources/js/football';
@@ -114,6 +115,19 @@ describe('MVP vote totals', () => {
             ana: 5,
             bea: 1,
         });
+    });
+});
+
+describe('goals per match eligibility', () => {
+    it('requires at least half of the season matches, rounding up', () => {
+        expect(isGoalsPerMatchEligible(2, 4)).toBe(true);
+        expect(isGoalsPerMatchEligible(1, 4)).toBe(false);
+        expect(isGoalsPerMatchEligible(3, 5)).toBe(true);
+        expect(isGoalsPerMatchEligible(2, 5)).toBe(false);
+    });
+
+    it('does not include players when the season has no matches', () => {
+        expect(isGoalsPerMatchEligible(0, 0)).toBe(false);
     });
 });
 

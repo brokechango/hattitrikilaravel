@@ -32,3 +32,8 @@ export function resolveMvpVotingAccess(
 
     return { votingEnabled, eligible };
 }
+
+export function resolveMvpCandidates(participantIds, currentPlayerId) {
+    return [...new Set(participantIds || [])]
+        .filter((playerId) => playerId !== currentPlayerId);
+}

@@ -5,6 +5,7 @@ import {
     countMvpVotes,
     fromHex,
     generateBalancedTeams,
+    isGoalsPerMatchEligible,
     matchWinner,
     toHex,
 } from './football';
@@ -12,6 +13,7 @@ import { formatFlooredTotal } from './formatters';
 import {
     collectDisabledMvpMatchIds,
     resolveMatchMvpPlayerId,
+    resolveMvpCandidates,
     resolveMvpVotingAccess,
 } from './mvp-voting';
 import {
@@ -630,8 +632,11 @@ const RANKINGS = {
     },
     'goals-per-match': {
         label: 'Goles / partido',
-        description: 'Divide los goles marcados entre los partidos jugados. Solo aparecen jugadores que hayan disputado al menos un partido. En caso de empate, queda por delante quien haya marcado más goles.',
-        filter: (item) => item.matchesPlayed > 0,
+        description: 'Divide los goles marcados entre los partidos jugados. Solo aparecen jugadores que hayan disputado al menos el 50 % de los partidos de la temporada. En caso de empate, queda por delante quien haya marcado más goles.',
+        filter: (item) => isGoalsPerMatchEligible(
+            item.matchesPlayed,
+            state.snapshot.matches.length,
+        ),
         sort: (a, b) => b.goalsPerMatch - a.goalsPerMatch || b.goals - a.goals,
         columns: [
             ['PJ', (item) => item.matchesPlayed],
@@ -1363,6 +1368,7 @@ function renderMatchMvp(match) {
         participantIds,
         state.mvpVotingDisabledMatchIds,
     );
+    const candidateIds = resolveMvpCandidates(participantIds, state.currentPlayerId);
     const panelOpen = state.mvpVotingMatchId === match.id;
 
     return `<section class="card match-mvp">
@@ -1374,7 +1380,7 @@ function renderMatchMvp(match) {
                 <p>${!votingEnabled
                     ? 'La votación MVP empieza a partir del próximo partido.'
                     : eligible
-                        ? 'Elige al jugador más destacado. Puedes cambiar tu voto cuando quieras.'
+                        ? 'Elige a otro jugador como el más destacado. Puedes cambiar tu voto cuando quieras.'
                         : 'Solo los jugadores que participaron en este partido pueden votar.'}</p>
             </div>
             <div class="match-mvp__action">
@@ -1385,9 +1391,9 @@ function renderMatchMvp(match) {
             </div>
         </div>
         ${panelOpen && eligible ? `<div class="match-mvp__panel">
-            <p>Selecciona un jugador de la alineación</p>
+            <p>Selecciona a otro jugador de la alineación</p>
             <div class="mvp-candidate-grid">
-                ${participantIds.map((playerId) => {
+                ${candidateIds.map((playerId) => {
                     const player = playerById(playerId);
                     const selected = currentVote?.nominee_player_id === playerId;
                     const team = match.participants.find((participant) => participant.player_id === playerId)?.team || '';
@@ -1398,7 +1404,7 @@ function renderMatchMvp(match) {
                         <span class="mvp-candidate__votes">${votes} ${votes === 1 ? 'voto' : 'votos'}</span>
                         <span class="mvp-candidate__check" aria-hidden="true">${selected ? '✓' : '›'}</span>
                     </button>`;
-                }).join('')}
+                }).join('') || '<p class="muted">No hay otros jugadores disponibles.</p>'}
             </div>
         </div>` : ''}
     </section>`;
@@ -2571,6 +2577,7 @@ root.addEventListener('click', async (event) => {
         render();
     } else if (action === 'cast-mvp-vote') {
         if (state.mvpVotingDisabledMatchIds.has(target.dataset.matchId)) return;
+        if (target.dataset.playerId === state.currentPlayerId) return;
         state.mvpBusy = true;
         render();
         try {

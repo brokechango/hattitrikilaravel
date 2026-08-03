@@ -73,6 +73,10 @@ export function countMvpVotes(voteRows) {
     }, {});
 }
 
+export function isGoalsPerMatchEligible(matchesPlayed, seasonMatchesPlayed) {
+    return seasonMatchesPlayed > 0 && matchesPlayed * 2 >= seasonMatchesPlayed;
+}
+
 const INITIAL_ELO_RATING = 1000;
 const ELO_K_FACTOR = 24;
 const GOAL_ELO_IMPACT = 2;
