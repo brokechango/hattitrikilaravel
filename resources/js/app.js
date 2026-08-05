@@ -747,12 +747,16 @@ const RANKINGS = {
                 `Cada gol marcado suma ${PLAYER_FORM_RULES.goalImpact} puntos y cada autogol resta ${PLAYER_FORM_RULES.ownGoalImpact}. Ser portero, las paradas y los goles encajados no intervienen en este ranking.`,
             ],
             [
+                'Asistencia',
+                `Participar en un partido suma ${PLAYER_FORM_RULES.attendanceBonus} punto y no acudir resta ${Math.abs(PLAYER_FORM_RULES.absencePenalty)}. Esta aportación también recibe el peso temporal del partido, por lo que acudir al más reciente influye más que acudir al quinto.`,
+            ],
+            [
                 'Votos MVP',
                 `Se añaden hasta ${PLAYER_FORM_RULES.maximumMvpImpact} puntos por partido. La aportación es proporcional a los votos recibidos entre todos los votos posibles de los demás participantes; por ejemplo, 2 votos entre 11 posibles aportan 0,55 puntos. Los votos mejoran la puntuación de forma, pero no alteran el Elo usado para calcular la dificultad de rivales futuros.`,
             ],
             [
                 'Ventana y peso temporal',
-                `Se toman los cinco partidos más recientes de la liga, no las cinco últimas apariciones de cada jugador. Pesan ${PLAYER_FORM_RULES.matchWeights.join(', ').replaceAll('.', ',')}, del más reciente al más antiguo. Si un jugador no participó en uno de ellos, ese partido no suma ni resta, pero conserva su posición temporal.`,
+                `Se toman los cinco partidos más recientes de la liga, no las cinco últimas apariciones de cada jugador. Pesan ${PLAYER_FORM_RULES.matchWeights.join(', ').replaceAll('.', ',')}, del más reciente al más antiguo. Si un jugador no participó, se aplica la penalización de ausencia con el peso correspondiente a ese partido.`,
             ],
             [
                 'Mínimo y columnas',
@@ -1307,7 +1311,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
         ['Goles', item.goals, item.goals, 'integer', 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals', 'top-scorer'],
         ['Goles / partido', formatDecimal(item.goalsPerMatch), item.goalsPerMatch, 'decimal', 'Media de goles marcados por cada partido jugado.', 'average', 'goals-per-match'],
         ['Victorias', item.wins, item.wins, 'integer', 'Partidos jugados que terminó ganando su equipo.', 'wins', 'most-wins'],
-        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos.', 'form', 'player-on-form'],
+        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos. Acudir suma 1 punto, faltar resta 9 y los votos MVP aportan hasta 3 por partido.', 'form', 'player-on-form'],
         ['Votos MVP', item.mvpVotes, item.mvpVotes, 'integer', 'Votos recibidos en partidos con la elección de MVP habilitada.', 'mvp', 'people-favourite'],
     ];
     const dashboardRankings = [
@@ -2513,7 +2517,7 @@ function renderRandomizer() {
                             <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.STREAK}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.STREAK ? 'checked' : ''}>
                             <span aria-hidden="true">🔥</span>
                             <strong>Por racha</strong>
-                            <small>Últimos 5 · votos MVP ponderados</small>
+                            <small>Últimos 5 · asistencia y MVP</small>
                         </label>
                         <label class="randomizer-balance-option${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? ' randomizer-balance-option--active' : ''}">
                             <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.HISTORICAL}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? 'checked' : ''}>

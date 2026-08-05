@@ -143,6 +143,8 @@ describe('football calculations', () => {
             eloKFactor: 16,
             goalImpact: 2,
             ownGoalImpact: 3,
+            attendanceBonus: 1,
+            absencePenalty: -9,
             matchWeights: [1, 0.9, 0.8, 0.7, 0.6],
             matchScores: {
                 regularWin: 1,
@@ -204,10 +206,10 @@ describe('football calculations', () => {
             formLosses: 0,
             isFormEligible: true,
         });
-        expect(ana.formScore).toBeCloseTo(14.34, 3);
+        expect(ana.formScore).toBeCloseTo(16.24, 3);
         expect(ana.eloRating).toBeCloseTo(1015.54, 3);
         expect(ana.historicalScore).toBeCloseTo(15.54, 3);
-        expect(bea.formScore).toBeCloseTo(-10.74, 3);
+        expect(bea.formScore).toBeCloseTo(-8.84, 3);
         expect(bea.eloRating).toBeCloseTo(988.46, 3);
         expect(bea.historicalScore).toBeCloseTo(-11.54, 3);
         expect(carla).toMatchObject({
@@ -227,6 +229,99 @@ describe('football calculations', () => {
             .toBeCloseTo(ana.historicalScore, 10);
         expect(playerPerformanceScore(undefined, PLAYER_PERFORMANCE_SCOPES.HISTORICAL))
             .toBe(0);
+    });
+
+    it('rewards attendance and penalizes absences in the five-match form window', () => {
+        const matches = Array.from({ length: 5 }, (_, index) => ({
+            id: `attendance-${5 - index}`,
+            teamAScore: 0,
+            teamBScore: 0,
+            teamAPenaltyScore: null,
+            teamBPenaltyScore: null,
+            participants: index < 2
+                ? [
+                    { player_id: 'ana', team: 'A', was_goalkeeper: false },
+                    { player_id: 'bea', team: 'B', was_goalkeeper: false },
+                ]
+                : [
+                    { player_id: 'ana', team: 'A', was_goalkeeper: false },
+                    { player_id: 'carla', team: 'B', was_goalkeeper: false },
+                ],
+            goals: [],
+        }));
+        const stats = calculatePlayerStats({
+            players: snapshot.players,
+            matches,
+        });
+        const ana = stats.find((item) => item.player.id === 'ana');
+        const bea = stats.find((item) => item.player.id === 'bea');
+        const carla = stats.find((item) => item.player.id === 'carla');
+
+        expect(PLAYER_FORM_RULES).toMatchObject({
+            attendanceBonus: 1,
+            absencePenalty: -9,
+        });
+        expect(ana).toMatchObject({ formMatches: 5, formAbsences: 0 });
+        expect(ana.formScore).toBeCloseTo(4, 10);
+        expect(bea).toMatchObject({
+            formMatches: 2,
+            formAbsences: 3,
+            isFormEligible: true,
+        });
+        expect(bea.formScore).toBeCloseTo(-17, 10);
+        expect(carla.latestFormImpact).toBe(-9);
+        expect(carla.formScore).toBeCloseTo(-15, 10);
+    });
+
+    it('ranks full attendance above avoiding two defeats through absences', () => {
+        const matches = Array.from({ length: 4 }, (_, index) => ({
+            id: `commitment-${4 - index}`,
+            teamAScore: index < 2 ? 2 : 0,
+            teamBScore: index < 2 ? 0 : 1,
+            teamAPenaltyScore: null,
+            teamBPenaltyScore: null,
+            participants: [
+                { player_id: 'regular', team: 'A', was_goalkeeper: false },
+                ...(index < 2
+                    ? [{ player_id: 'sporadic', team: 'A', was_goalkeeper: false }]
+                    : []),
+                { player_id: 'rival', team: 'B', was_goalkeeper: false },
+            ],
+            goals: index < 2
+                ? [
+                    {
+                        player_id: 'regular',
+                        team: 'A',
+                        count: index === 0 ? 2 : 1,
+                        is_own_goal: false,
+                    },
+                    {
+                        player_id: 'sporadic',
+                        team: 'A',
+                        count: index === 0 ? 2 : 1,
+                        is_own_goal: false,
+                    },
+                ]
+                : [],
+        }));
+        const stats = calculatePlayerStats({
+            players: [
+                { id: 'regular', name: 'Regular' },
+                { id: 'sporadic', name: 'Sporadic' },
+                { id: 'rival', name: 'Rival' },
+            ],
+            matches,
+        });
+        const regular = stats.find((item) => item.player.id === 'regular');
+        const sporadic = stats.find((item) => item.player.id === 'sporadic');
+
+        expect(regular).toMatchObject({ formMatches: 4, formAbsences: 0 });
+        expect(sporadic).toMatchObject({
+            formMatches: 2,
+            formAbsences: 2,
+            isFormEligible: true,
+        });
+        expect(regular.formScore).toBeGreaterThan(sporadic.formScore);
     });
 
     it('adds MVP votes from the last five matches to form and every vote to history', () => {
@@ -266,7 +361,7 @@ describe('football calculations', () => {
             historicalMvpVotes: 9,
             historicalMvpScore: 6.75,
         });
-        expect(ana.formScore).toBeCloseTo(3.525, 10);
+        expect(ana.formScore).toBeCloseTo(7.525, 10);
         expect(ana.historicalScore).toBeCloseTo(6.75, 10);
     });
 
@@ -330,9 +425,9 @@ describe('football calculations', () => {
         });
 
         expect(ownGoalStats.find((item) => item.player.id === 'ana').formScore)
-            .toBe(8);
+            .toBe(9);
         expect(ownGoalStats.find((item) => item.player.id === 'bea').formScore)
-            .toBe(-11);
+            .toBe(-10);
     });
 
     it('uses the first team when the same player appears for both sides', () => {

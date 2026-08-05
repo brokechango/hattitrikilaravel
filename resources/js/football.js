@@ -93,6 +93,8 @@ const INITIAL_ELO_RATING = 1000;
 const ELO_K_FACTOR = 16;
 const GOAL_ELO_IMPACT = 2;
 const OWN_GOAL_ELO_IMPACT = 3;
+const FORM_ATTENDANCE_BONUS = 1;
+const FORM_ABSENCE_PENALTY = -9;
 const FORM_MATCH_WEIGHTS = Object.freeze([1, 0.9, 0.8, 0.7, 0.6]);
 const MATCH_ELO_SCORES = Object.freeze({
     regularWin: 1,
@@ -108,6 +110,8 @@ export const PLAYER_FORM_RULES = Object.freeze({
     eloKFactor: ELO_K_FACTOR,
     goalImpact: GOAL_ELO_IMPACT,
     ownGoalImpact: OWN_GOAL_ELO_IMPACT,
+    attendanceBonus: FORM_ATTENDANCE_BONUS,
+    absencePenalty: FORM_ABSENCE_PENALTY,
     matchWeights: FORM_MATCH_WEIGHTS,
     matchScores: MATCH_ELO_SCORES,
     maximumMvpImpact: MVP_MAX_MATCH_IMPACT,
@@ -294,24 +298,33 @@ function calculatePlayerFormMetrics(snapshot, mvpVotes) {
         let formDraws = 0;
         let formLosses = 0;
         let formMvpVotes = 0;
+        let formAbsences = 0;
         let latestFormImpact = 0;
 
         recentMatches.forEach((match, index) => {
             const performance = impactsByMatch.get(match)?.get(player.id);
-
-            if (!performance) {
-                return;
-            }
+            const attendanceImpact = performance
+                ? FORM_ATTENDANCE_BONUS
+                : FORM_ABSENCE_PENALTY;
 
             if (index === 0) {
-                latestFormImpact = performance.impact
-                    + performance.mvpImpact;
+                latestFormImpact = attendanceImpact
+                    + (performance?.impact || 0)
+                    + (performance?.mvpImpact || 0);
             }
 
             formScore += (
-                performance.impact
-                    + performance.mvpImpact
+                attendanceImpact
+                    + (performance?.impact || 0)
+                    + (performance?.mvpImpact || 0)
             ) * FORM_MATCH_WEIGHTS[index];
+
+            if (!performance) {
+                formAbsences += 1;
+
+                return;
+            }
+
             formMatches += 1;
             formGoals += performance.goals;
             formMvpVotes += performance.mvpVotes;
@@ -334,6 +347,7 @@ function calculatePlayerFormMetrics(snapshot, mvpVotes) {
             formLosses,
             formMatches,
             formMvpVotes,
+            formAbsences,
             formOwnGoals,
             formScore: Math.abs(formScore) < Number.EPSILON ? 0 : formScore,
             formWins,
