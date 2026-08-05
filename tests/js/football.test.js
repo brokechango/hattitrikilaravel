@@ -8,6 +8,7 @@ import {
     isGoalsPerMatchEligible,
     isPenaltyShootout,
     matchWinner,
+    MVP_MAX_MATCH_IMPACT,
     PLAYER_PERFORMANCE_SCOPES,
     playerPerformanceScore,
     toHex,
@@ -206,6 +207,58 @@ describe('football calculations', () => {
             .toBeCloseTo(ana.historicalScore, 10);
         expect(playerPerformanceScore(undefined, PLAYER_PERFORMANCE_SCOPES.HISTORICAL))
             .toBe(0);
+    });
+
+    it('adds MVP votes from the last five matches to form and every vote to history', () => {
+        const matches = Array.from({ length: 6 }, (_, index) => ({
+            id: `m${6 - index}`,
+            playedOn: `2026-07-${String(6 - index).padStart(2, '0')}`,
+            teamAScore: 0,
+            teamBScore: 0,
+            teamAPenaltyScore: null,
+            teamBPenaltyScore: null,
+            participants: [
+                { player_id: 'ana', team: 'A', was_goalkeeper: false },
+                { player_id: 'bea', team: 'B', was_goalkeeper: false },
+                { player_id: 'carla', team: 'A', was_goalkeeper: false },
+                { player_id: 'dani', team: 'B', was_goalkeeper: false },
+                { player_id: 'eva', team: 'A', was_goalkeeper: false },
+            ],
+            goals: [],
+        }));
+        const mvpVotes = [
+            { match_id: 'm6', nominee_player_id: 'ana', vote_count: 2 },
+            { match_id: 'm5', nominee_player_id: 'ana', vote_count: 3 },
+            { match_id: 'm1', nominee_player_id: 'ana', vote_count: 4 },
+        ];
+        const ana = calculatePlayerStats({
+            players: [
+                ...snapshot.players,
+                { id: 'dani', name: 'Dani' },
+                { id: 'eva', name: 'Eva' },
+            ],
+            matches,
+        }, mvpVotes).find((item) => item.player.id === 'ana');
+
+        expect(MVP_MAX_MATCH_IMPACT).toBe(3);
+        expect(ana).toMatchObject({
+            formMvpVotes: 5,
+            historicalMvpVotes: 9,
+            historicalMvpScore: 6.75,
+        });
+        expect(ana.formScore).toBeCloseTo(3.3, 10);
+        expect(ana.historicalScore).toBeCloseTo(6.75, 10);
+    });
+
+    it('counts every MVP vote even when the match vote is tied', () => {
+        const mvpVotes = [
+            { match_id: 'm2', nominee_player_id: 'ana', vote_count: 1 },
+            { match_id: 'm2', nominee_player_id: 'bea', vote_count: 1 },
+        ];
+        const stats = calculatePlayerStats(snapshot, mvpVotes);
+
+        expect(stats.find((item) => item.player.id === 'ana').historicalMvpVotes).toBe(1);
+        expect(stats.find((item) => item.player.id === 'bea').historicalMvpVotes).toBe(1);
     });
 
     it('ignores every goalkeeper field when calculating Elo form', () => {

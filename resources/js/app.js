@@ -649,7 +649,7 @@ function teamLabel(match, team) {
 function calculateStats() {
     const mvpVoteCounts = countMvpVotes(state.mvpVotes);
 
-    return calculatePlayerStats(state.snapshot).map((item) => ({
+    return calculatePlayerStats(state.snapshot, state.mvpVotes).map((item) => ({
         ...item,
         mvpVotes: mvpVoteCounts[item.player.id] || 0,
     }));
@@ -731,7 +731,7 @@ const RANKINGS = {
     'player-on-form': {
         label: 'Jugador en racha',
         scopeLabel: 'FORMA · ÚLTIMOS 5 PARTIDOS',
-        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos Elo y cada autogol resta 3. Los últimos cinco partidos pesan 1, 0,8, 0,6, 0,4 y 0,2, del más reciente al más antiguo. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
+        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos y cada autogol resta 3. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos, por lo que todos los votos cuentan sin favorecer convocatorias más numerosas. Los últimos cinco partidos pesan 1, 0,8, 0,6, 0,4 y 0,2, del más reciente al más antiguo. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
         filter: (item) => item.isFormEligible,
         sort: (a, b) => b.formScore - a.formScore
             || b.latestFormImpact - a.latestFormImpact
@@ -742,6 +742,7 @@ const RANKINGS = {
         columns: [
             ['PJ', (item) => item.formMatches],
             ['G', (item) => item.formGoals],
+            ['VOTOS MVP', (item) => item.formMvpVotes],
             ['V‑E‑D', (item) => `${item.formWins}-${item.formDraws}-${item.formLosses}`],
             ['PUNTOS', (item) => formatFlooredTotal(item.formScore), true],
         ],
@@ -1268,7 +1269,7 @@ function renderPlayerProfile(playerId, ownProfile = false) {
         ['Goles', item.goals, item.goals, 'integer', 'Goles marcados por el jugador. Los goles en propia puerta no suman.', 'goals', 'top-scorer'],
         ['Goles / partido', formatDecimal(item.goalsPerMatch), item.goalsPerMatch, 'decimal', 'Media de goles marcados por cada partido jugado.', 'average', 'goals-per-match'],
         ['Victorias', item.wins, item.wins, 'integer', 'Partidos jugados que terminó ganando su equipo.', 'wins', 'most-wins'],
-        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos.', 'form', 'player-on-form'],
+        ['Puntos de forma', formScoreLabel, formScore, 'signed', 'Puntuación ponderada obtenida en los últimos cinco partidos. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos.', 'form', 'player-on-form'],
         ['Votos MVP', item.mvpVotes, item.mvpVotes, 'integer', 'Votos recibidos en partidos con la elección de MVP habilitada.', 'mvp', 'people-favourite'],
     ];
     const dashboardRankings = [
@@ -2469,13 +2470,13 @@ function renderRandomizer() {
                             <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.STREAK}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.STREAK ? 'checked' : ''}>
                             <span aria-hidden="true">🔥</span>
                             <strong>Por racha</strong>
-                            <small>Últimos 5 partidos</small>
+                            <small>Últimos 5 · votos MVP ponderados</small>
                         </label>
                         <label class="randomizer-balance-option${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? ' randomizer-balance-option--active' : ''}">
                             <input type="radio" name="randomizer-balance-mode" value="${PLAYER_PERFORMANCE_SCOPES.HISTORICAL}" ${randomizer.balanceMode === PLAYER_PERFORMANCE_SCOPES.HISTORICAL ? 'checked' : ''}>
                             <span aria-hidden="true">📚</span>
                             <strong>Por histórico</strong>
-                            <small>Toda la temporada</small>
+                            <small>Todos · votos MVP ponderados</small>
                         </label>
                     </div>
                 </section>

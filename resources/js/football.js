@@ -93,6 +93,8 @@ const ELO_K_FACTOR = 24;
 const GOAL_ELO_IMPACT = 2;
 const OWN_GOAL_ELO_IMPACT = 3;
 const FORM_MATCH_WEIGHTS = [1, 0.8, 0.6, 0.4, 0.2];
+// Unanimous MVP support equals 1.5 goals or a quarter of an even-match regular win.
+export const MVP_MAX_MATCH_IMPACT = 3;
 
 export const PLAYER_PERFORMANCE_SCOPES = Object.freeze({
     STREAK: 'streak',
@@ -144,11 +146,26 @@ function matchEloScores(match) {
     return { A: 0.5, B: 0.5 };
 }
 
-function calculatePlayerFormMetrics(snapshot) {
+function calculatePlayerFormMetrics(snapshot, mvpVotes) {
     const matches = snapshot.matches || [];
     const players = snapshot.players || [];
     const ratings = new Map(players.map((player) => [player.id, INITIAL_ELO_RATING]));
     const impactsByMatch = new Map();
+    const historicalMvpVotes = new Map(players.map((player) => [player.id, 0]));
+    const historicalMvpScore = new Map(players.map((player) => [player.id, 0]));
+    const mvpVotesByMatch = new Map();
+
+    for (const row of mvpVotes || []) {
+        const matchId = row.match_id;
+        const playerId = row.nominee_player_id;
+        const voteCount = Number(row.vote_count) || 0;
+
+        if (!matchId || !playerId || voteCount <= 0) continue;
+
+        const matchVotes = mvpVotesByMatch.get(matchId) || new Map();
+        matchVotes.set(playerId, (matchVotes.get(playerId) || 0) + voteCount);
+        mvpVotesByMatch.set(matchId, matchVotes);
+    }
 
     for (const match of [...matches].reverse()) {
         const teamPlayers = { A: new Set(), B: new Set() };
@@ -177,10 +194,12 @@ function calculatePlayerFormMetrics(snapshot) {
             B: ELO_K_FACTOR * (actualScores.B - expectedScores.B),
         };
         const matchImpacts = new Map();
+        const matchMvpVotes = mvpVotesByMatch.get(match.id) || new Map();
         const participantIds = new Set([
             ...teamPlayers.A,
             ...teamPlayers.B,
         ]);
+        const possibleMvpVotes = Math.max(1, participantIds.size - 1);
 
         for (const playerId of participantIds) {
             const playerParticipations = (match.participants || [])
@@ -197,6 +216,9 @@ function calculatePlayerFormMetrics(snapshot) {
             const ownGoals = (match.goals || [])
                 .filter((goal) => goal.player_id === playerId && goal.is_own_goal)
                 .reduce((total, goal) => total + Number(goal.count || 0), 0);
+            const playerMvpVotes = matchMvpVotes.get(playerId) || 0;
+            const mvpImpact = Math.min(playerMvpVotes / possibleMvpVotes, 1)
+                * MVP_MAX_MATCH_IMPACT;
             const teamImpact = playerTeam ? teamDeltas[playerTeam] : 0;
             const impact = teamImpact + goals * GOAL_ELO_IMPACT
                 - ownGoals * OWN_GOAL_ELO_IMPACT;
@@ -212,9 +234,22 @@ function calculatePlayerFormMetrics(snapshot) {
             matchImpacts.set(playerId, {
                 goals,
                 impact,
+                mvpImpact,
+                mvpVotes: playerMvpVotes,
                 ownGoals,
                 result,
             });
+
+            if (playerMvpVotes) {
+                historicalMvpVotes.set(
+                    playerId,
+                    (historicalMvpVotes.get(playerId) || 0) + playerMvpVotes,
+                );
+                historicalMvpScore.set(
+                    playerId,
+                    (historicalMvpScore.get(playerId) || 0) + mvpImpact,
+                );
+            }
         }
 
         impactsByMatch.set(match, matchImpacts);
@@ -231,6 +266,7 @@ function calculatePlayerFormMetrics(snapshot) {
         let formWins = 0;
         let formDraws = 0;
         let formLosses = 0;
+        let formMvpVotes = 0;
         let latestFormImpact = 0;
 
         recentMatches.forEach((match, index) => {
@@ -241,12 +277,17 @@ function calculatePlayerFormMetrics(snapshot) {
             }
 
             if (index === 0) {
-                latestFormImpact = performance.impact;
+                latestFormImpact = performance.impact
+                    + performance.mvpImpact;
             }
 
-            formScore += performance.impact * FORM_MATCH_WEIGHTS[index];
+            formScore += (
+                performance.impact
+                    + performance.mvpImpact
+            ) * FORM_MATCH_WEIGHTS[index];
             formMatches += 1;
             formGoals += performance.goals;
+            formMvpVotes += performance.mvpVotes;
             formOwnGoals += performance.ownGoals;
 
             if (performance.result === 'win') formWins += 1;
@@ -255,7 +296,9 @@ function calculatePlayerFormMetrics(snapshot) {
         });
 
         const eloRating = ratings.get(player.id) ?? INITIAL_ELO_RATING;
-        const historicalScore = eloRating - INITIAL_ELO_RATING;
+        const historicalMvpVoteCount = historicalMvpVotes.get(player.id) || 0;
+        const historicalScore = eloRating - INITIAL_ELO_RATING
+            + (historicalMvpScore.get(player.id) || 0);
 
         return [player.id, {
             eloRating,
@@ -263,6 +306,7 @@ function calculatePlayerFormMetrics(snapshot) {
             formGoals,
             formLosses,
             formMatches,
+            formMvpVotes,
             formOwnGoals,
             formScore: Math.abs(formScore) < Number.EPSILON ? 0 : formScore,
             formWins,
@@ -270,15 +314,17 @@ function calculatePlayerFormMetrics(snapshot) {
             historicalScore: Math.abs(historicalScore) < Number.EPSILON
                 ? 0
                 : historicalScore,
+            historicalMvpVotes: historicalMvpVoteCount,
+            historicalMvpScore: historicalMvpScore.get(player.id) || 0,
             latestFormImpact,
         }];
     }));
 }
 
-export function calculatePlayerStats(snapshot) {
+export function calculatePlayerStats(snapshot, mvpVotes = []) {
     const matches = snapshot.matches;
     const goalkeeperShare = {};
-    const formMetrics = calculatePlayerFormMetrics(snapshot);
+    const formMetrics = calculatePlayerFormMetrics(snapshot, mvpVotes);
 
     for (const match of matches) {
         for (const team of ['A', 'B']) {
