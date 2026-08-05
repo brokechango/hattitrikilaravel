@@ -9,6 +9,7 @@ import {
     isPenaltyShootout,
     matchWinner,
     MVP_MAX_MATCH_IMPACT,
+    PLAYER_FORM_RULES,
     PLAYER_PERFORMANCE_SCOPES,
     playerPerformanceScore,
     toHex,
@@ -136,6 +137,25 @@ describe('goals per match eligibility', () => {
 });
 
 describe('football calculations', () => {
+    it('publishes the form scoring rules used by the ranking explanation', () => {
+        expect(PLAYER_FORM_RULES).toEqual({
+            initialEloRating: 1000,
+            eloKFactor: 16,
+            goalImpact: 2,
+            ownGoalImpact: 3,
+            matchWeights: [1, 0.9, 0.8, 0.7, 0.6],
+            matchScores: {
+                regularWin: 1,
+                draw: 0.5,
+                regularLoss: 0,
+                penaltyWin: 0.75,
+                penaltyLoss: 0.25,
+            },
+            maximumMvpImpact: 3,
+            minimumAppearances: 2,
+        });
+    });
+
     it('decides regular and penalty winners', () => {
         expect(matchWinner(snapshot.matches[1])).toBe('A');
         expect(matchWinner(snapshot.matches[0])).toBe('A');

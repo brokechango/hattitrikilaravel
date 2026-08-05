@@ -93,9 +93,26 @@ const INITIAL_ELO_RATING = 1000;
 const ELO_K_FACTOR = 16;
 const GOAL_ELO_IMPACT = 2;
 const OWN_GOAL_ELO_IMPACT = 3;
-const FORM_MATCH_WEIGHTS = [1, 0.9, 0.8, 0.7, 0.6];
+const FORM_MATCH_WEIGHTS = Object.freeze([1, 0.9, 0.8, 0.7, 0.6]);
+const MATCH_ELO_SCORES = Object.freeze({
+    regularWin: 1,
+    draw: 0.5,
+    regularLoss: 0,
+    penaltyWin: 0.75,
+    penaltyLoss: 0.25,
+});
 // Unanimous MVP support equals 1.5 goals and stays below half an even-match win.
 export const MVP_MAX_MATCH_IMPACT = 3;
+export const PLAYER_FORM_RULES = Object.freeze({
+    initialEloRating: INITIAL_ELO_RATING,
+    eloKFactor: ELO_K_FACTOR,
+    goalImpact: GOAL_ELO_IMPACT,
+    ownGoalImpact: OWN_GOAL_ELO_IMPACT,
+    matchWeights: FORM_MATCH_WEIGHTS,
+    matchScores: MATCH_ELO_SCORES,
+    maximumMvpImpact: MVP_MAX_MATCH_IMPACT,
+    minimumAppearances: 2,
+});
 
 export const PLAYER_PERFORMANCE_SCOPES = Object.freeze({
     STREAK: 'streak',
@@ -127,11 +144,17 @@ function expectedEloScore(rating, opponentRating) {
 
 function matchEloScores(match) {
     if (match.teamAScore > match.teamBScore) {
-        return { A: 1, B: 0 };
+        return {
+            A: MATCH_ELO_SCORES.regularWin,
+            B: MATCH_ELO_SCORES.regularLoss,
+        };
     }
 
     if (match.teamBScore > match.teamAScore) {
-        return { A: 0, B: 1 };
+        return {
+            A: MATCH_ELO_SCORES.regularLoss,
+            B: MATCH_ELO_SCORES.regularWin,
+        };
     }
 
     if (
@@ -140,11 +163,11 @@ function matchEloScores(match) {
         && match.teamAPenaltyScore !== match.teamBPenaltyScore
     ) {
         return match.teamAPenaltyScore > match.teamBPenaltyScore
-            ? { A: 0.75, B: 0.25 }
-            : { A: 0.25, B: 0.75 };
+            ? { A: MATCH_ELO_SCORES.penaltyWin, B: MATCH_ELO_SCORES.penaltyLoss }
+            : { A: MATCH_ELO_SCORES.penaltyLoss, B: MATCH_ELO_SCORES.penaltyWin };
     }
 
-    return { A: 0.5, B: 0.5 };
+    return { A: MATCH_ELO_SCORES.draw, B: MATCH_ELO_SCORES.draw };
 }
 
 function calculatePlayerFormMetrics(snapshot, mvpVotes) {
@@ -257,7 +280,10 @@ function calculatePlayerFormMetrics(snapshot, mvpVotes) {
     }
 
     const recentMatches = matches.slice(0, FORM_MATCH_WEIGHTS.length);
-    const requiredMatches = Math.min(2, recentMatches.length);
+    const requiredMatches = Math.min(
+        PLAYER_FORM_RULES.minimumAppearances,
+        recentMatches.length,
+    );
 
     return new Map(players.map((player) => {
         let formScore = 0;

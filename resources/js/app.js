@@ -7,6 +7,7 @@ import {
     generateBalancedTeams,
     isGoalsPerMatchEligible,
     matchWinner,
+    PLAYER_FORM_RULES,
     PLAYER_PERFORMANCE_SCOPES,
     playerPerformanceScore,
     toHex,
@@ -731,7 +732,41 @@ const RANKINGS = {
     'player-on-form': {
         label: 'Jugador en racha',
         scopeLabel: 'FORMA · ÚLTIMOS 5 PARTIDOS',
-        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos y cada autogol resta 3. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos, por lo que todos los votos cuentan sin favorecer convocatorias más numerosas. Los últimos cinco partidos pesan 1, 0,9, 0,8, 0,7 y 0,6, del más reciente al más antiguo, para premiar la forma reciente sin provocar cambios bruscos. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
+        description: 'La clasificación combina la fuerza de los equipos, el resultado y las aportaciones individuales. Estos son todos los baremos que intervienen en la puntuación.',
+        details: [
+            [
+                'Elo y dificultad del rival',
+                `Todos comienzan la temporada con ${PLAYER_FORM_RULES.initialEloRating.toLocaleString('es-ES')} puntos Elo. Antes de cada partido se compara la media Elo de ambos equipos. El resultado aporta ${PLAYER_FORM_RULES.eloKFactor} × (resultado real − resultado esperado): ganar a un equipo fuerte suma más y perder contra él resta menos. La diferencia de goles del marcador no modifica esta parte. Los partidos anteriores a la ventana de forma siguen influyendo en la fuerza Elo esperada.`,
+            ],
+            [
+                'Valor de cada resultado',
+                `Victoria: ${PLAYER_FORM_RULES.matchScores.regularWin}; empate: ${PLAYER_FORM_RULES.matchScores.draw}; derrota: ${PLAYER_FORM_RULES.matchScores.regularLoss}. Si hay penaltis, la victoria vale ${PLAYER_FORM_RULES.matchScores.penaltyWin} y la derrota ${PLAYER_FORM_RULES.matchScores.penaltyLoss}. Con dos equipos igualados, una victoria normal supone aproximadamente +${PLAYER_FORM_RULES.eloKFactor / 2} y una derrota −${PLAYER_FORM_RULES.eloKFactor / 2}.`,
+            ],
+            [
+                'Goles, autogoles y portería',
+                `Cada gol marcado suma ${PLAYER_FORM_RULES.goalImpact} puntos y cada autogol resta ${PLAYER_FORM_RULES.ownGoalImpact}. Ser portero, las paradas y los goles encajados no intervienen en este ranking.`,
+            ],
+            [
+                'Votos MVP',
+                `Se añaden hasta ${PLAYER_FORM_RULES.maximumMvpImpact} puntos por partido. La aportación es proporcional a los votos recibidos entre todos los votos posibles de los demás participantes; por ejemplo, 2 votos entre 11 posibles aportan 0,55 puntos. Los votos mejoran la puntuación de forma, pero no alteran el Elo usado para calcular la dificultad de rivales futuros.`,
+            ],
+            [
+                'Ventana y peso temporal',
+                `Se toman los cinco partidos más recientes de la liga, no las cinco últimas apariciones de cada jugador. Pesan ${PLAYER_FORM_RULES.matchWeights.join(', ').replaceAll('.', ',')}, del más reciente al más antiguo. Si un jugador no participó en uno de ellos, ese partido no suma ni resta, pero conserva su posición temporal.`,
+            ],
+            [
+                'Mínimo y columnas',
+                `Cuando la temporada tiene dos o más partidos, hacen falta al menos ${PLAYER_FORM_RULES.minimumAppearances} apariciones dentro de la ventana para entrar en la clasificación. PJ, goles, votos MVP y V‑E‑D solo resumen esa ventana. Una victoria o derrota por penaltis cuenta como V o D en esas columnas, aunque para el Elo use ${PLAYER_FORM_RULES.matchScores.penaltyWin}/${PLAYER_FORM_RULES.matchScores.penaltyLoss}.`,
+            ],
+            [
+                'Total mostrado',
+                'Cada impacto se multiplica por su peso temporal y después se suman todos. La tabla muestra el entero inferior: 4,9 aparece como 4 y −4,1 como −5. La posición se decide con el valor decimal exacto, no con el número redondeado que se ve.',
+            ],
+            [
+                'Desempates',
+                'Si dos jugadores tienen exactamente la misma puntuación, se compara, por este orden: impacto del partido más reciente, goles en la ventana, victorias en la ventana, Elo acumulado de la temporada y nombre alfabético.',
+            ],
+        ],
         filter: (item) => item.isFormEligible,
         sort: (a, b) => b.formScore - a.formScore
             || b.latestFormImpact - a.latestFormImpact
@@ -1620,6 +1655,10 @@ function renderDialog() {
     const closingClass = dialog.closing ? ' dialog-backdrop--closing' : '';
     const panelClosingClass = dialog.closing ? ' dialog--closing' : '';
     if (dialog.variant === 'ranking-info') {
+        const details = (dialog.details || []).map(([title, description]) => `<li>
+            <strong>${esc(title)}</strong>
+            <p>${esc(description)}</p>
+        </li>`).join('');
         return `<div class="dialog-backdrop dialog-backdrop--ranking-info${closingClass}" role="presentation"><section class="dialog dialog--ranking-info${panelClosingClass}" role="dialog" aria-modal="true" aria-labelledby="dialog-title" aria-describedby="dialog-description">
             <div class="ranking-dialog__accent" aria-hidden="true"></div>
             <header class="ranking-dialog__header">
@@ -1632,9 +1671,10 @@ function renderDialog() {
             </header>
             <div class="ranking-dialog__body">
                 <span class="ranking-dialog__info-icon" aria-hidden="true">${icon('info')}</span>
-                <div>
-                    <strong>Cómo funciona</strong>
-                    <p id="dialog-description">${esc(dialog.message)}</p>
+                <div id="dialog-description" class="ranking-dialog__content">
+                    <strong class="ranking-dialog__intro-title">Cómo funciona</strong>
+                    <p>${esc(dialog.message)}</p>
+                    ${details ? `<ol class="ranking-dialog__details">${details}</ol>` : ''}
                 </div>
             </div>
             <div class="dialog__actions ranking-dialog__actions">
@@ -2793,6 +2833,7 @@ root.addEventListener('click', async (event) => {
             title: definition.label,
             symbol: RANKING_SYMBOLS[state.rankingCategory] || '⚽',
             message: definition.description,
+            details: definition.details || [],
             confirmLabel: 'Entendido',
             singleAction: true,
             onConfirm: () => {},

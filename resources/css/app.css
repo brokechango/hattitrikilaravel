@@ -4209,7 +4209,7 @@ button.step {
     height: 22px;
 }
 
-.ranking-dialog__body strong {
+.ranking-dialog__intro-title {
     display: block;
     margin-bottom: 6px;
     color: var(--white);
@@ -4222,6 +4222,52 @@ button.step {
     color: #c8d7e5;
     font-size: 15px;
     line-height: 1.62;
+}
+
+.ranking-dialog__details {
+    display: grid;
+    gap: 13px;
+    margin: 17px 0 0;
+    padding: 17px 0 0;
+    border-top: 1px solid rgb(111 137 163 / 24%);
+    counter-reset: ranking-detail;
+    list-style: none;
+}
+
+.ranking-dialog__details li {
+    position: relative;
+    padding-left: 34px;
+    counter-increment: ranking-detail;
+}
+
+.ranking-dialog__details li::before {
+    position: absolute;
+    top: 1px;
+    left: 0;
+    display: grid;
+    width: 23px;
+    height: 23px;
+    place-items: center;
+    border: 1px solid rgb(242 190 62 / 34%);
+    border-radius: 7px;
+    background: rgb(242 190 62 / 9%);
+    color: var(--gold);
+    content: counter(ranking-detail);
+    font-size: 11px;
+    font-weight: 900;
+}
+
+.ranking-dialog__details strong {
+    display: block;
+    margin-bottom: 3px;
+    color: var(--white);
+    font-size: 13px;
+    font-weight: 900;
+}
+
+.dialog--ranking-info .ranking-dialog__details p {
+    font-size: 13px;
+    line-height: 1.55;
 }
 
 .ranking-dialog__actions {
