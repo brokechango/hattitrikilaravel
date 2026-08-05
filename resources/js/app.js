@@ -777,7 +777,7 @@ const RANKINGS = {
         columns: [
             ['PJ', (item) => item.formMatches],
             ['G', (item) => item.formGoals],
-            ['VOTOS MVP', (item) => item.formMvpVotes],
+            ['MVP', (item) => item.formMvpVotes],
             ['V‑E‑D', (item) => `${item.formWins}-${item.formDraws}-${item.formLosses}`],
             ['PUNTOS', (item) => formatFlooredTotal(item.formScore), true],
         ],
@@ -1215,7 +1215,7 @@ function renderRankings() {
             <button class="chip" type="button" data-action="ranking-view" data-view="detailed" aria-pressed="${state.rankingView === 'detailed'}">Detallada</button>
         </div>
         ${entries.length ? `<div class="ranking-table${motionClass}">
-            <div class="ranking-row ranking-row--head ${rankingRowClasses}"><span>#</span><span></span><span>JUGADOR</span>${definition.columns.map(([label]) => `<span class="ranking-metric">${esc(label)}</span>`).join('')}${showRecentForm ? '<span class="recent-form recent-form--head">RACHA</span>' : ''}</div>
+            <div class="ranking-row ranking-row--head ${rankingRowClasses}"><span>#</span><span></span><span>JUGADOR</span><span class="ranking-metrics">${definition.columns.map(([label]) => `<span class="ranking-metric">${esc(label)}</span>`).join('')}</span>${showRecentForm ? '<span class="recent-form recent-form--head">RACHA</span>' : ''}</div>
             ${entries.map((entry, index) => renderRankingRow(entry, index, definition, rankingRowClasses)).join('')}
         </div>` : `<div class="card${motionClass}">${stateView('empty', 'No hay jugadores para esta clasificación', 'Los datos aparecerán cuando existan partidos suficientes.')}</div>`}
     </section>`;
@@ -1225,7 +1225,10 @@ function renderRankingRow(entry, index, definition, rankingRowClasses) {
     const rankNumber = index + 1;
     return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ' ranking-row--podium' : ''}" href="/rankings/jugador/${toHex(entry.player.id)}">
         <span class="rank">${rankNumber}</span>${avatar(entry.player)}<span class="ranking-name">${esc(entry.player.name)}</span>
-        ${definition.columns.map(([, value, primary]) => `<span class="ranking-metric${primary ? ' ranking-metric--primary' : ''}">${esc(value(entry))}</span>`).join('')}
+        <span class="ranking-metrics">${definition.columns.map(([label, value, primary]) => {
+            const metricValue = value(entry);
+            return `<span class="ranking-metric${primary ? ' ranking-metric--primary' : ''}" data-label="${esc(label)}" aria-label="${esc(label)}: ${esc(metricValue)}">${esc(metricValue)}</span>`;
+        }).join('')}</span>
         ${state.rankingView === 'detailed' ? `<span class="recent-form"><span class="recent-form__label">RACHA</span>${entry.recentForm.map((result) => `<span class="form-dot form-dot--${result}" title="${result === 'win' ? 'Victoria' : result === 'penalty-win' ? 'Victoria por penaltis' : result === 'draw' ? 'Empate' : result === 'loss' ? 'Derrota' : result === 'none' ? 'No jugó' : 'Partido pendiente'}">${result === 'win' ? 'V' : result === 'penalty-win' ? 'VP' : result === 'draw' ? 'E' : result === 'loss' ? 'D' : ''}</span>`).join('')}</span>` : ''}
     </a>`;
 }
