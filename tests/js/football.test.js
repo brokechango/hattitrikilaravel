@@ -184,12 +184,12 @@ describe('football calculations', () => {
             formLosses: 0,
             isFormEligible: true,
         });
-        expect(ana.formScore).toBeCloseTo(17.835, 3);
-        expect(ana.eloRating).toBeCloseTo(1021.035, 3);
-        expect(ana.historicalScore).toBeCloseTo(21.035, 3);
-        expect(bea.formScore).toBeCloseTo(-14.635, 3);
-        expect(bea.eloRating).toBeCloseTo(982.965, 3);
-        expect(bea.historicalScore).toBeCloseTo(-17.035, 3);
+        expect(ana.formScore).toBeCloseTo(14.34, 3);
+        expect(ana.eloRating).toBeCloseTo(1015.54, 3);
+        expect(ana.historicalScore).toBeCloseTo(15.54, 3);
+        expect(bea.formScore).toBeCloseTo(-10.74, 3);
+        expect(bea.eloRating).toBeCloseTo(988.46, 3);
+        expect(bea.historicalScore).toBeCloseTo(-11.54, 3);
         expect(carla).toMatchObject({
             formMatches: 1,
             formGoals: 1,
@@ -246,7 +246,7 @@ describe('football calculations', () => {
             historicalMvpVotes: 9,
             historicalMvpScore: 6.75,
         });
-        expect(ana.formScore).toBeCloseTo(3.3, 10);
+        expect(ana.formScore).toBeCloseTo(3.525, 10);
         expect(ana.historicalScore).toBeCloseTo(6.75, 10);
     });
 
@@ -284,7 +284,7 @@ describe('football calculations', () => {
         }
     });
 
-    it('subtracts Elo for defeats and adds an extra penalty for own goals', () => {
+    it('limits an even-match Elo swing and adds an extra penalty for own goals', () => {
         const ownGoalStats = calculatePlayerStats({
             players: [
                 { id: 'ana', name: 'Ana' },
@@ -310,9 +310,9 @@ describe('football calculations', () => {
         });
 
         expect(ownGoalStats.find((item) => item.player.id === 'ana').formScore)
-            .toBe(12);
+            .toBe(8);
         expect(ownGoalStats.find((item) => item.player.id === 'bea').formScore)
-            .toBe(-15);
+            .toBe(-11);
     });
 
     it('uses the first team when the same player appears for both sides', () => {

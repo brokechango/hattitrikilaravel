@@ -731,7 +731,7 @@ const RANKINGS = {
     'player-on-form': {
         label: 'Jugador en racha',
         scopeLabel: 'FORMA · ÚLTIMOS 5 PARTIDOS',
-        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos y cada autogol resta 3. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos, por lo que todos los votos cuentan sin favorecer convocatorias más numerosas. Los últimos cinco partidos pesan 1, 0,8, 0,6, 0,4 y 0,2, del más reciente al más antiguo. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
+        description: 'Todos parten de 1.000 Elo. La variación depende del resultado y de la fuerza media del rival: una victoria suma, una derrota resta y un empate puede subir o bajar según lo esperado. En penaltis se usan valores parciales de 0,75 y 0,25. Cada gol suma 2 puntos y cada autogol resta 3. Los votos MVP aportan hasta 3 puntos por partido según la proporción de votos posibles recibidos, por lo que todos los votos cuentan sin favorecer convocatorias más numerosas. Los últimos cinco partidos pesan 1, 0,9, 0,8, 0,7 y 0,6, del más reciente al más antiguo, para premiar la forma reciente sin provocar cambios bruscos. No se utiliza ninguna estadística de portería y se necesitan al menos dos apariciones cuando hay dos o más partidos disponibles.',
         filter: (item) => item.isFormEligible,
         sort: (a, b) => b.formScore - a.formScore
             || b.latestFormImpact - a.latestFormImpact

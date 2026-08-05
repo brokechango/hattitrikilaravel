@@ -89,11 +89,12 @@ export function isGoalsPerMatchEligible(matchesPlayed, seasonMatchesPlayed) {
 }
 
 const INITIAL_ELO_RATING = 1000;
-const ELO_K_FACTOR = 24;
+// Keep short seasons from swinging too sharply after a single result.
+const ELO_K_FACTOR = 16;
 const GOAL_ELO_IMPACT = 2;
 const OWN_GOAL_ELO_IMPACT = 3;
-const FORM_MATCH_WEIGHTS = [1, 0.8, 0.6, 0.4, 0.2];
-// Unanimous MVP support equals 1.5 goals or a quarter of an even-match regular win.
+const FORM_MATCH_WEIGHTS = [1, 0.9, 0.8, 0.7, 0.6];
+// Unanimous MVP support equals 1.5 goals and stays below half an even-match win.
 export const MVP_MAX_MATCH_IMPACT = 3;
 
 export const PLAYER_PERFORMANCE_SCOPES = Object.freeze({
