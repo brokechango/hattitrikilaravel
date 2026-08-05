@@ -1200,7 +1200,7 @@ function renderRankings() {
     const definition = RANKINGS[state.rankingCategory] || RANKINGS['top-scorer'];
     const entries = ranking(state.rankingCategory);
     const showRecentForm = state.rankingView === 'detailed';
-    const rankingRowClasses = `ranking-row--metrics-${definition.columns.length}${showRecentForm ? ' ranking-row--detailed' : ''}`;
+    const rankingRowClasses = `ranking-row--metrics-${definition.columns.length} ranking-row--rich${showRecentForm ? ' ranking-row--detailed' : ''}`;
     const filters = `<div class="ranking-category-grid">${RANKING_CATEGORY_KEYS.map((key) => {
         const item = RANKINGS[key];
         return `<button class="chip" type="button" data-action="ranking-category" data-category="${key}" aria-pressed="${state.rankingCategory === key}">${esc(item.label)}</button>`;
@@ -1227,7 +1227,7 @@ function renderRankings() {
 
 function renderRankingRow(entry, index, definition, rankingRowClasses) {
     const rankNumber = index + 1;
-    return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ' ranking-row--podium' : ''}" href="/rankings/jugador/${toHex(entry.player.id)}">
+    return `<a class="ranking-row ${rankingRowClasses}${rankNumber <= 3 ? ` ranking-row--podium ranking-row--rank-${rankNumber}` : ''}" href="/rankings/jugador/${toHex(entry.player.id)}">
         <span class="rank">${rankNumber}</span>${avatar(entry.player)}<span class="ranking-name">${esc(entry.player.name)}</span>
         <span class="ranking-metrics">${definition.columns.map(([label, value, primary]) => {
             const metricValue = value(entry);

@@ -2079,7 +2079,7 @@ noscript {
 }
 
 .ranking-row--podium .rank {
-    color: var(--gold);
+    color: var(--podium-accent, var(--gold));
 }
 
 .avatar {
@@ -5929,8 +5929,18 @@ body {
 
 .ranking-row--podium {
     background:
-        linear-gradient(90deg, rgb(242 190 62 / 8%), transparent 36%),
+        linear-gradient(90deg, var(--podium-wash, rgb(242 190 62 / 8%)), transparent 36%),
         rgb(16 36 60 / 88%);
+}
+
+.ranking-row--rank-2 {
+    --podium-accent: #c7d2dc;
+    --podium-wash: rgb(199 210 220 / 8%);
+}
+
+.ranking-row--rank-3 {
+    --podium-accent: #d58a55;
+    --podium-wash: rgb(213 138 85 / 8%);
 }
 
 .rank {
@@ -8807,11 +8817,11 @@ body {
 }
 
 @media (max-width: 839px) {
-    .ranking-row--head.ranking-row--detailed {
+    .ranking-row--head.ranking-row--rich {
         display: none;
     }
 
-    .ranking-row--detailed:not(.ranking-row--head) {
+    .ranking-row--rich:not(.ranking-row--head) {
         position: relative;
         min-width: 0;
         min-height: 0;
@@ -8820,16 +8830,16 @@ body {
         grid-template-columns: 24px 34px minmax(0, 1fr);
     }
 
-    .ranking-row--detailed .rank {
+    .ranking-row--rich .rank {
         font-size: 12px;
     }
 
-    .ranking-row--detailed .ranking-name {
+    .ranking-row--rich .ranking-name {
         padding-right: 72px;
         font-size: 14px;
     }
 
-    .ranking-row--detailed .ranking-metrics {
+    .ranking-row--rich .ranking-metrics {
         display: grid;
         min-width: 0;
         gap: 6px;
@@ -8837,23 +8847,23 @@ body {
         grid-row: 2;
     }
 
-    .ranking-row--metrics-2.ranking-row--detailed .ranking-metrics {
+    .ranking-row--metrics-2.ranking-row--rich .ranking-metrics {
         grid-template-columns: 1fr;
     }
 
-    .ranking-row--metrics-3.ranking-row--detailed .ranking-metrics {
+    .ranking-row--metrics-3.ranking-row--rich .ranking-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .ranking-row--metrics-4.ranking-row--detailed .ranking-metrics {
+    .ranking-row--metrics-4.ranking-row--rich .ranking-metrics {
         grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 
-    .ranking-row--metrics-5.ranking-row--detailed .ranking-metrics {
+    .ranking-row--metrics-5.ranking-row--rich .ranking-metrics {
         grid-template-columns: repeat(4, minmax(0, 1fr));
     }
 
-    .ranking-row--detailed .ranking-metric {
+    .ranking-row--rich .ranking-metric {
         display: grid;
         min-width: 0;
         min-height: 38px;
@@ -8868,7 +8878,7 @@ body {
         text-align: left;
     }
 
-    .ranking-row--detailed .ranking-metric::before {
+    .ranking-row--rich .ranking-metric::before {
         overflow: hidden;
         color: #8fa7bc;
         content: attr(data-label);
@@ -8880,7 +8890,7 @@ body {
         white-space: nowrap;
     }
 
-    .ranking-row--detailed .ranking-metric--primary {
+    .ranking-row--rich .ranking-metric--primary {
         position: absolute;
         top: 10px;
         right: 12px;
@@ -8895,7 +8905,7 @@ body {
         font-size: 16px;
     }
 
-    .ranking-row--detailed .ranking-metric--primary::before {
+    .ranking-row--rich .ranking-metric--primary::before {
         color: #bda35f;
     }
 
@@ -8921,6 +8931,13 @@ body {
 }
 
 @media (min-width: 840px) {
+    .ranking-row--metrics-5.ranking-row--rich:not(.ranking-row--detailed) {
+        gap: 10px;
+        grid-template-columns:
+            30px 42px minmax(180px, 1fr)
+            46px 46px 52px 72px 82px;
+    }
+
     .ranking-row--metrics-5.ranking-row--detailed {
         min-width: 760px;
         gap: 10px;
@@ -8929,12 +8946,12 @@ body {
             48px 48px 64px 78px 76px minmax(136px, max-content);
     }
 
-    .ranking-row--detailed:not(.ranking-row--head) {
+    .ranking-row--rich:not(.ranking-row--head) {
         min-height: 64px;
         padding-block: 11px;
     }
 
-    .ranking-row--detailed .ranking-metric {
+    .ranking-row--rich .ranking-metric {
         display: grid;
         min-height: 32px;
         place-items: center;
@@ -8944,11 +8961,11 @@ body {
         text-align: center;
     }
 
-    .ranking-row--detailed:not(.ranking-row--head) .ranking-metric {
+    .ranking-row--rich:not(.ranking-row--head) .ranking-metric {
         background: rgb(4 15 29 / 18%);
     }
 
-    .ranking-row--detailed:not(.ranking-row--head) .ranking-metric--primary {
+    .ranking-row--rich:not(.ranking-row--head) .ranking-metric--primary {
         border: 1px solid rgb(242 190 62 / 25%);
         background: rgb(242 190 62 / 8%);
         font-size: 15px;
@@ -8964,11 +8981,11 @@ body {
         height: 22px;
     }
 
-    .ranking-row--head.ranking-row--detailed {
+    .ranking-row--head.ranking-row--rich {
         min-height: 42px;
     }
 
-    .ranking-row--head.ranking-row--detailed .ranking-metric,
+    .ranking-row--head.ranking-row--rich .ranking-metric,
     .ranking-row--head.ranking-row--detailed .recent-form {
         color: #a9bfd2;
         font-size: 10px;
